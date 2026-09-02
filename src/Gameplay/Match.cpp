@@ -2,6 +2,7 @@
 
 #include "Core/Config.h"
 #include "Core/Logger.h"
+#include "Gameplay/AiController.h"
 #include "Gameplay/Attack.h"
 #include "Gameplay/CombatConfig.h"
 #include "Gameplay/Fighter.h"
@@ -58,6 +59,10 @@ void apply_attack(Fighter& attacker, Fighter& target) {
 
 Match::Match() {
     reset();
+    // M4 default: P1 is human-controlled, P2 is the bot. The future
+    // difficulty-select screen will swap this; the harness can override it
+    // via set_ai() before each tick.
+    ai_[1] = std::make_unique<AiController>();
 }
 
 Match::~Match() = default;
@@ -67,13 +72,47 @@ void Match::reset() {
     for (int i = 0; i < kFighterCount; ++i) {
         fighters_[i] = std::make_unique<Fighter>(i, arena_);
     }
+    // AI controllers are not owned by the fighters; reset their internal
+    // state but keep them attached so a rematch keeps the same difficulty.
+    for (int i = 0; i < kFighterCount; ++i) {
+        if (ai_[i]) ai_[i]->reset_for_test();
+    }
+}
+
+void Match::set_ai(int fighter_index, std::unique_ptr<AiController> controller) {
+    if (fighter_index < 0 || fighter_index >= kFighterCount) return;
+    ai_[fighter_index] = std::move(controller);
+}
+
+bool Match::is_ai(int fighter_index) const {
+    if (fighter_index < 0 || fighter_index >= kFighterCount) return false;
+    return ai_[fighter_index] != nullptr;
+}
+
+const AiController* Match::ai(int fighter_index) const {
+    if (fighter_index < 0 || fighter_index >= kFighterCount) return nullptr;
+    return ai_[fighter_index].get();
 }
 
 void Match::update(const InputManager& input, double dt) {
-    // 1) Sample input once per fighter and advance physics + combat state.
+    // 1) Drive each fighter. AI-controlled fighters ask their controller
+    //    for intents; everyone else uses the keyboard.
     for (int i = 0; i < kFighterCount; ++i) {
-        const InputMap::Sample s = InputMap::sample(input, i);
-        fighters_[i]->update(s.motion, s.combat, arena_, dt);
+        Fighter& self = *fighters_[i];
+        PlayerIntent motion{};
+        CombatIntent combat{};
+        if (ai_[i]) {
+            // The opponent is whoever is on the other index. With kFighterCount
+            // == 2 this is just (1 - i).
+            const int opp_idx = (i == 0) ? 1 : 0;
+            const Fighter& opp = *fighters_[opp_idx];
+            ai_[i]->decide(self, opp, arena_, dt, motion, combat);
+        } else {
+            const InputMap::Sample s = InputMap::sample(input, i);
+            motion = s.motion;
+            combat = s.combat;
+        }
+        self.update(motion, combat, arena_, dt);
     }
 
     // 2) Resolve hits: for each ordered pair (attacker, defender) where the

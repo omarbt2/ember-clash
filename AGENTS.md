@@ -23,29 +23,28 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**M3 — Combat + Hitboxes (this milestone).** Three attacks ship (Jab,
-Forward Tilt, Neutral Air) defined as data in `src/Gameplay/Attack.cpp`,
-each with startup/active/recovery frames, a hitbox, knockback, damage,
-and hitstun. The fighter is a state machine (`Idle` / `Attacking` /
-`Hitstun` / `Dead`) wired into `Fighter::update`. The match resolves
-AABB overlaps between the attacker's active hitbox and the defender's
-hurtbox in `Match::update`. Knockback follows the design doc's
-`base * (1 + damage / divisor)` formula in `src/Gameplay/CombatConfig.h`.
-Debug overlays (red hitbox outline during an attack, green hurtbox
-outline on the body) are drawn and will be removed when real art lands
-in M6.
+**M4 — AI opponent (this milestone).** Player 2 is now driven by
+`ember::ai::AiController`, a deterministic finite-state machine with
+six states: `Idle` / `Approach` / `Attack` / `Retreat` / `Recover` /
+`Defend`. All tuning lives in `ember::ai::Difficulty` (defined in
+`src/Gameplay/AiConfig.h`): reaction delay, attack frequency, recovery
+priority, defensive threshold, jump aggression, RNG seed. RNG is
+xorshift32 so a given seed always produces the same bot trace (good
+for replays, tests, and bug reports). The bot is wired in by default
+for P2 through `Match::set_ai(...)`; M4 ships the `kStandard` preset
+and the headless test harness (`tests/ember_test_ai.cpp` built via
+`build/run_ai_test.bat`) covers six scenarios / 14 assertions, all
+green as of the M4 tag.
 
-M2 — Movement + Physics + Arena — is complete. One M2 bug was found
-and fixed during M3 testing: `Arena::resolve_collision` had its
-`push_up` / `push_down` variables named the wrong way around, so the
-branch that should LAND a fighter on top of a platform was the one
-that BONKED, and vice versa. The M2 smoke test had not exercised the
-collision path, so the bug went unnoticed until the M3 headless combat
-harness tried to fall a fighter onto the floor.
+M3 — Combat + Hitboxes — is complete. Three attacks (Jab / Forward
+Tilt / Neutral Air), hitbox/hurtbox, damage %, knockback formula,
+hitstun, fighter state machine (`Idle` / `Attacking` / `Hitstun` /
+`Dead`) all ship and are exercised by the M3 headless combat harness.
 
-M4 (Damage / Knockback / Stocks + UI for damage %, hit spark, KO) is
-next. M5 is the deterministic AI opponent. We do not auto-start M4
-without an explicit owner request (per orchestrator doc §34).
+M5 (Match flow: stocks, KO, respawn timer, rematch, damage-% UI,
+KO banner) is next. M6+ covers final art, animation, audio, then the
+Android and Emscripten ports. We do not auto-start M5 without an
+explicit owner request (per orchestrator doc §34).
 
 ## Build & run
 
@@ -80,6 +79,13 @@ src/
                            damage, knockback, hitstun) + active-window
                            helpers; kAttacks[] is the single source of
                            attack tuning
+    AiConfig.h             AI difficulty struct (ember::ai::Difficulty)
+                           + kStandard / kEasy / kHard presets; all
+                           bot tuning lives here
+    AiController.{h,cpp}   deterministic FSM (Idle/Approach/Attack/
+                           Retreat/Recover/Defend); owns its
+                           Difficulty; xorshift32 RNG; integrates
+                           into Match via set_ai(idx, unique_ptr)
     CombatConfig.h         knockback formula + cap constants
     Fighter.{h,cpp}        fighter entity: state machine (Idle/Attacking/
                            Hitstun/Dead), motion step, collision, render
@@ -217,18 +223,59 @@ damage %. After enough accumulated damage, a single attack will launch
 them off the stage; they auto-respawn for now (the M5 respawn timer
 replaces that).
 
+For M4 the visual baseline is unchanged from M3. The difference is
+that Player 2 now moves on its own even when no one is touching the
+arrow keys — it's driven by the `ember::ai::AiController` state
+machine. If you just let the game sit for a few seconds after launch,
+P2 should walk toward P1, start swinging jabs / ftilt / nair, and
+occasionally back off when it has taken damage.
+
 ### Headless test harness (scratch tests)
 
 For purely-logical changes (state machines, formulas, geometry), the
 production binary's smoke test isn't enough — there's no easy way to
 press specific keys at specific frames. The pattern that works on this
-toolchain is to write a small `.cpp` file under `build\` that includes
-the gameplay headers, compile it against the same sources with
+toolchain is to write a small `.cpp` file that includes the gameplay
+headers, compile it against the same sources with
 `cl /std:c++latest /EHsc ... SDL3.lib`, and assert in `main()`. The
-M3 scratch test (45 cases, 0 failures) was written this way; it
-caught an M2-era collision bug that the smoke test had missed because
-the smoke test never actually moves fighters. The test code and the
-intermediate `obj/` and `.exe` artifacts are deleted before commit.
+M3 scratch test (45 cases) and M4 AI test (6 scenarios / 14 assertions)
+were written this way. They both caught real bugs that the smoke
+test had missed because the smoke test never actually moves fighters.
+
+M3's test lived under `build/` and was deleted before commit. Starting
+with M4, the headless tests are checked in under `tests/`:
+
+```
+tests/
+  ember_test_ai.cpp    M4 AI test (6 scenarios / 14 assertions, all green)
+  run_ai_test.bat      build/runner script (Windows)
+```
+
+The runner is invoked as `build/run_ai_test.bat` (it lives under
+`build/` because it needs to find the per-file `*.cpp.obj` files that
+CMake produces there; the `tests/` source is passed in as a command-
+line argument). All test artifacts (`ember_test_ai.exe`, `*.ilk`,
+`*.pdb`) live under `build/` and are gitignored.
+
+### AI conventions (M4)
+
+* `ember::ai::AiController` is a value type held by `Match` through
+  `std::unique_ptr<AiController>`; it never owns fighters directly.
+* The bot emits `PlayerIntent` + `CombatIntent` (the same types the
+  human `InputMap` produces) so `Fighter` cannot tell whether an
+  intent came from a human or the AI. This is intentional — the bot
+  is just another `InputMap` from the Fighter's point of view.
+* RNG is **xorshift32** (inside `AiController.cpp`) and is seeded by
+  `Difficulty::seed`. Do not call `std::rand` / `<random>` directly
+  inside the FSM — it would break determinism guarantees.
+* All AI tuning numbers live in `src/Gameplay/AiConfig.h`. Do not
+  hard-code reaction delays or attack thresholds inside
+  `AiController.cpp`.
+* New AI states are added by extending the `State` enum and the
+  `tick_state` switch in `AiController.cpp`, and by adding the
+  transition conditions in `update` (or a private helper). The
+  test harness in `tests/ember_test_ai.cpp` should be extended to
+  cover any new state.
 
 ## Git
 

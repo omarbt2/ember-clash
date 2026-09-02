@@ -1,17 +1,19 @@
-﻿# Ember Clash
+# Ember Clash
 
 A 2D 1v1 platform fighter inspired by the *Smash Bros.* damage-and-knockback
 formula. Built from scratch in **C++20** with **SDL3**, no traditional game
 engine, on **CMake**.
 
-> **Current milestone: M3 — Combat + Hitboxes.** Three attacks are live
-> (Jab, Forward Tilt, Neutral Air), each with startup / active / recovery
-> frames, a hitbox, and the damage-and-knockback formula. The fighter
-> runs a real state machine (Idle / Attacking / Hitstun / Dead) and the
-> match resolves AABB overlaps between the attacker's hitbox and the
-> defender's hurtbox. Knockback scales with accumulated damage. The red
-> outline during an attack is the active hitbox; the green outline is the
-> hurtbox. Both are debug overlays and will be removed in M6.
+> **Current milestone: M4 - AI opponent.** Player 2 is now driven by a
+> deterministic state machine (Idle / Approach / Attack / Retreat /
+> Recover / Defend) with reaction-delay, attack-frequency, recovery-
+> priority, defensive-threshold, and jump-aggression knobs. The bot
+> plays a real match: approaches, commits to jabs / ftilt / nair, walks
+> back when damaged, and tries to recover when launched off-stage.
+> Difficulty is a single `ai::Difficulty` struct in
+> `src/Gameplay/AiConfig.h`; the M4 build ships the `kStandard`
+> preset. The state trace is reproducible for a given seed
+> (xorshift32), verified by the headless test harness (14/14 PASS).
 
 ---
 
@@ -83,12 +85,15 @@ Controls (keyboard, two players on one keyboard):
 | Quit            | `Esc`          | `Esc`           |
 
 You should see a dark navy background, a light-blue arena (main floor plus
-two elevated side platforms) outlined in yellow, and a red and a blue
-fighter. Both fighters can walk, jump (and double-jump), and fast-fall.
-The three attacks land on the opponent and launch them with knockback
-that scales with their damage %. Active hitboxes (red outline) and
-hurtboxes (green outline) are drawn as debug overlays; they'll be removed
-when real art lands in M6.
+two elevated side platforms) outlined in yellow, a red fighter and a blue
+fighter. Player 1 (red) is the human; **Player 2 (blue) is the bot by
+default** — driven by the M4 deterministic state machine. Both can walk,
+jump (and double-jump), and fast-fall. The three attacks land on the
+opponent and launch them with knockback that scales with their damage %.
+Active hitboxes (red outline) and hurtboxes (green outline) are drawn as
+debug overlays; they'll be removed when real art lands in M6. To disable
+the bot and use a second human on the keyboard, pass `-p2-human` (not yet
+implemented — for now just play against the bot and see how you do).
 
 ---
 
@@ -100,7 +105,7 @@ when real art lands in M6.
 ├── cmake/CopySDL3DLL.cmake   Windows post-build helper (copies SDL3.dll)
 ├── README.md                 This file
 ├── .gitignore
-└── src/
+├── src/
     ├── main.cpp                 Entry point
     ├── Core/
     │   ├── App.{h,cpp}          Subsystem orchestrator + main loop
@@ -110,6 +115,8 @@ when real art lands in M6.
     │   └── Time.{h,cpp}         Clock + capped delta time
     ├── Gameplay/
     │   ├── Attack.{h,cpp}       Attack data table + active-window helpers
+    │   ├── AiConfig.h            AI difficulty tuning (reaction delay, attack freq, etc.)
+    │   ├── AiController.{h,cpp}  Deterministic state machine (Idle/Approach/Attack/Retreat/Recover/Defend)
     │   ├── CombatConfig.h       Knockback formula + cap constants
     │   ├── Fighter.{h,cpp}      Fighter entity (state machine, motion, collide, render)
     │   ├── InputMap.{h,cpp}     Keyboard → PlayerIntent + CombatIntent
@@ -124,6 +131,9 @@ when real art lands in M6.
     │   └── PhysicsConfig.h      Tuning constants (gravity, walk, jump, ...)
     └── World/
         └── Arena.{h,cpp}        Platform list + collision + render
+└── tests/
+    │   ├── ember_test_ai.cpp    Headless M4 AI test harness (6 scenarios, 14/14 PASS)
+    │   └── run_ai_test.bat      Build + run script for the AI test harness (Windows)
 ```
 
 `Audio/` and `UI/` will land in their own milestones and only when they
@@ -139,16 +149,48 @@ have content.
    single & double jump, fast-fall, platform collision, death zone
    with respawn, the main arena layout, keyboard input wired through
    the input layer.
-3. **M3 — Combat + Hitboxes** *(this milestone)*: hitboxes, hurtboxes,
+3. **M3 — Combat + Hitboxes** *(complete)*: hitboxes, hurtboxes,
    damage %, knockback, three attacks (Jab, Forward Tilt, Neutral Air),
    fighter state machine (Idle / Attacking / Hitstun / Dead),
    knockback scales with damage.
-4. **M4 — AI opponent**: deterministic state machine.
+4. **M4 — AI opponent** *(this milestone)*: deterministic state machine
+   for Player 2 (Idle / Approach / Attack / Retreat / Recover / Defend),
+   seeded RNG, full difficulty table, AI integrated into Match
+   (P1 = human, P2 = bot by default), headless test harness (14/14 PASS).
 5. **M5 — Match flow**: KO, stocks, respawn timer, rematch.
 6. **M6+**: final art, animation, audio, mobile (Android) port, web
    (Emscripten) port.
 
 See `docs/ROADMAP.md` once it exists; until then this README is canonical.
+
+---
+
+## Testing
+
+The project ships with a headless AI test harness so the M4 state
+machine can be verified without launching a window.
+
+1. Build the main game once so SDL3 is fetched and the
+   `build/CMakeFiles/EmberClash.dir/src/...` object files exist:
+
+       cd build
+       cmake -G Ninja ..
+       ninja
+
+2. Build and run the AI test (Windows; uses MSVC `cl.exe` directly so
+   it doesn't depend on a fresh CMake project for the test itself):
+
+       cd build
+       run_ai_test.bat
+
+You should see six numbered scenarios — wiring, custom difficulty,
+real-match simulation, FSM determinism, retreat on damage, and
+off-stage recovery — each printing `PASS`, ending with
+`== ALL PASS (0 failure(s)) ==`.
+
+The harness reuses the same `AiController` and `Difficulty` types the
+game does, so passing tests are a real signal that the bot will behave
+the same way in the actual game.
 
 ---
 

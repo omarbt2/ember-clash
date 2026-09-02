@@ -40,6 +40,7 @@ public:
     AttackId current_attack_id() const { return current_attack_id_; }
     int  attack_frame() const { return attack_frame_; }
     int  hitstun_frames() const { return hitstun_frames_; }
+    const Vec2& velocity() const { return velocity_; }     // read-only (M4 AI)
 
     // Mutable accessors are intentionally not part of the public surface;
     // they're for the headless combat test and for engine glue that needs
