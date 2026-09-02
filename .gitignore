@@ -1,0 +1,61 @@
+# Build directories
+build/
+out/
+cmake-build-*/
+
+# Generated CMake files
+CMakeCache.txt
+CMakeFiles/
+CMakeScripts/
+cmake_install.cmake
+install_manifest.txt
+Makefile
+*.cmake
+!cmake/*.cmake
+CMakeUserPresets.json
+
+# Ninja
+.ninja_deps
+.ninja_log
+build.ninja
+rules.ninja
+
+# MSVC / Visual Studio artifacts
+.vs/
+*.vcxproj
+*.vcxproj.filters
+*.vcxproj.user
+*.sln
+*.suo
+*.user
+*.pdb
+*.ilk
+*.obj
+*.exe
+*.exp
+*.lib
+*.idb
+*.ipdb
+*.iobj
+*.pgi
+*.pgd
+
+# Runtime / packaging
+*.dll
+*.so
+*.dylib
+
+# IDE
+.idea/
+.vscode/
+.cache/
+compile_commands.json
+
+# OS junk
+Thumbs.db
+.DS_Store
+desktop.ini
+
+# SDL3 fetched sources (FetchContent cache)
+_third_party/
+_external/
