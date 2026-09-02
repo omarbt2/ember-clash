@@ -66,6 +66,7 @@ set(EMBER_SOURCES
     src/Core/Logger.cpp
     src/Core/Time.cpp
 
+    src/Gameplay/Attack.cpp
     src/Gameplay/Fighter.cpp
     src/Gameplay/InputMap.cpp
     src/Gameplay/Match.cpp

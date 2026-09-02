@@ -61,8 +61,14 @@ bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
         // platform. Positive values mean there's an actual overlap.
         const float push_left  = p.aabb.right()  - body.x;        // push body left
         const float push_right = (body.x + body.w) - p.aabb.x;    // push body right
-        const float push_up    = p.aabb.bottom() - body.y;        // snap to top of platform
-        const float push_down  = (body.y + body.h) - p.aabb.y;    // bonk head
+        // push_up: vertical distance from body bottom to platform top.
+        //   Positive = body has come down INTO the platform (landing case).
+        //   Resolution: set body.y = p.aabb.y - body.h so feet rest on top.
+        const float push_up    = (body.y + body.h) - p.aabb.y;
+        // push_down: vertical distance from platform bottom to body top.
+        //   Positive = body has come up INTO the platform (bonk case).
+        //   Resolution: set body.y = p.aabb.bottom() so head rests under.
+        const float push_down  = p.aabb.bottom() - body.y;
 
         // Resolve along the axis of smallest penetration. Ties go vertical
         // (Smash-style fighters prioritize landing/bonking over wall-sliding).
@@ -80,14 +86,14 @@ bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
         } else {
             if (push_up < push_down) {
                 // Body came from above -> land on the platform.
-                body.y = p.aabb.bottom();
+                body.y = p.aabb.y - body.h;
                 if (velocity.y > 0.0) {
                     velocity.y = 0.0;
                     grounded = true;
                 }
             } else {
                 // Body came from below -> bonk the head.
-                body.y = p.aabb.y - body.h;
+                body.y = p.aabb.bottom();
                 if (velocity.y < 0.0) velocity.y = 0.0;
             }
         }

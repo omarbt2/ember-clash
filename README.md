@@ -1,14 +1,17 @@
-# Ember Clash
+﻿# Ember Clash
 
 A 2D 1v1 platform fighter inspired by the *Smash Bros.* damage-and-knockback
 formula. Built from scratch in **C++20** with **SDL3**, no traditional game
 engine, on **CMake**.
 
-> **Current milestone: M2 — Movement + Physics + Arena.** Two fighters can
-> walk, jump (with a double jump), fast-fall, and collide with the platform
-> layout. Keyboard controls are wired through the input layer; a fighter
-> that falls off the stage respawns. Combat, AI, match flow, art, and
-> mobile ports arrive in later milestones.
+> **Current milestone: M3 — Combat + Hitboxes.** Three attacks are live
+> (Jab, Forward Tilt, Neutral Air), each with startup / active / recovery
+> frames, a hitbox, and the damage-and-knockback formula. The fighter
+> runs a real state machine (Idle / Attacking / Hitstun / Dead) and the
+> match resolves AABB overlaps between the attacker's hitbox and the
+> defender's hurtbox. Knockback scales with accumulated damage. The red
+> outline during an attack is the active hitbox; the green outline is the
+> hurtbox. Both are debug overlays and will be removed in M6.
 
 ---
 
@@ -74,12 +77,18 @@ Controls (keyboard, two players on one keyboard):
 | Move right      | `D`            | `→`             |
 | Jump (also double-jump) | `W` or `Space` | `↑`        |
 | Fast-fall       | `S` (in air)   | `↓` (in air)    |
+| Jab             | `J`            | Numpad `1`      |
+| Forward Tilt    | `K`            | Numpad `2`      |
+| Neutral Air     | `L` (in air)   | Numpad `3` (in air) |
 | Quit            | `Esc`          | `Esc`           |
 
 You should see a dark navy background, a light-blue arena (main floor plus
 two elevated side platforms) outlined in yellow, and a red and a blue
 fighter. Both fighters can walk, jump (and double-jump), and fast-fall.
-Falling off the stage respawns them at their starting position.
+The three attacks land on the opponent and launch them with knockback
+that scales with their damage %. Active hitboxes (red outline) and
+hurtboxes (green outline) are drawn as debug overlays; they'll be removed
+when real art lands in M6.
 
 ---
 
@@ -100,9 +109,11 @@ Falling off the stage respawns them at their starting position.
     │   ├── Math.h               Vec2 + Aabb primitives
     │   └── Time.{h,cpp}         Clock + capped delta time
     ├── Gameplay/
-    │   ├── Fighter.{h,cpp}      Fighter entity (motion, collide, render)
-    │   ├── InputMap.{h,cpp}     Keyboard → PlayerIntent
-    │   └── Match.{h,cpp}        Owns arena + two fighters
+    │   ├── Attack.{h,cpp}       Attack data table + active-window helpers
+    │   ├── CombatConfig.h       Knockback formula + cap constants
+    │   ├── Fighter.{h,cpp}      Fighter entity (state machine, motion, collide, render)
+    │   ├── InputMap.{h,cpp}     Keyboard → PlayerIntent + CombatIntent
+    │   └── Match.{h,cpp}        Owns arena + two fighters, resolves hits
     ├── Graphics/
     │   ├── Window.{h,cpp}       SDL_Window RAII wrapper
     │   └── Renderer.{h,cpp}     SDL_Renderer wrapper + draw helpers
@@ -124,12 +135,14 @@ have content.
 
 1. **M1 — Foundation** *(complete)*: build, window, renderer, loop,
    delta time, input, placeholder scene.
-2. **M2 — Movement + Physics + Arena** *(this milestone)*: gravity,
-   walk, single & double jump, fast-fall, platform collision, death
-   zone with respawn, the main arena layout, keyboard input wired
-   through the input layer.
-3. **M3 — Combat**: hitboxes, hurtboxes, damage %, knockback, one or two
-   sample moves.
+2. **M2 — Movement + Physics + Arena** *(complete)*: gravity, walk,
+   single & double jump, fast-fall, platform collision, death zone
+   with respawn, the main arena layout, keyboard input wired through
+   the input layer.
+3. **M3 — Combat + Hitboxes** *(this milestone)*: hitboxes, hurtboxes,
+   damage %, knockback, three attacks (Jab, Forward Tilt, Neutral Air),
+   fighter state machine (Idle / Attacking / Hitstun / Dead),
+   knockback scales with damage.
 4. **M4 — AI opponent**: deterministic state machine.
 5. **M5 — Match flow**: KO, stocks, respawn timer, rematch.
 6. **M6+**: final art, animation, audio, mobile (Android) port, web

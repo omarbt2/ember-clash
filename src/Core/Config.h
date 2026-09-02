@@ -36,10 +36,15 @@ struct Color {
     std::uint8_t a;
 };
 
-inline constexpr Color kClearColor  { 18,  22,  32, 255 };
-inline constexpr Color kArenaColor  { 70, 130, 180, 255 };
-inline constexpr Color kFighterP1   { 220,  80,  70, 255 };
-inline constexpr Color kFighterP2   {  70, 130, 220, 255 };
-inline constexpr Color kAccentColor { 240, 200,  80, 255 };
+inline constexpr Color kClearColor       { 18,  22,  32, 255 };
+inline constexpr Color kArenaColor       { 70, 130, 180, 255 };
+inline constexpr Color kFighterP1        { 220,  80,  70, 255 };
+inline constexpr Color kFighterP2        {  70, 130, 220, 255 };
+inline constexpr Color kAccentColor      { 240, 200,  80, 255 };
+// M3 debug overlays: drawn around active hitboxes / hurtboxes so combat
+// behavior is visible during development. M6 will replace these with real
+// art (sprites + hit-spark VFX), at which point these constants can go.
+inline constexpr Color kCombatHitboxColor { 250,  60,  60, 255 };
+inline constexpr Color kCombatHurtboxColor{  60, 220,  90, 255 };
 
 } // namespace ember::config

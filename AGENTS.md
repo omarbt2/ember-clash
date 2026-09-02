@@ -23,17 +23,29 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**M2 — Movement + Physics + Arena (complete).** Two fighters walk, jump
-(with a double jump), fast-fall, and collide with the platform layout
-through `Arena::resolve_collision`. Keyboard input flows from
-`InputManager` → `InputMap::sample` → `PlayerIntent` → `Fighter::update`,
-with no `SDLK_*` references anywhere outside `InputMap.cpp` and
-`InputManager.cpp`. Fighters that fall off the stage respawn at their
-starting position; there is no KO counter yet (M5).
+**M3 — Combat + Hitboxes (this milestone).** Three attacks ship (Jab,
+Forward Tilt, Neutral Air) defined as data in `src/Gameplay/Attack.cpp`,
+each with startup/active/recovery frames, a hitbox, knockback, damage,
+and hitstun. The fighter is a state machine (`Idle` / `Attacking` /
+`Hitstun` / `Dead`) wired into `Fighter::update`. The match resolves
+AABB overlaps between the attacker's active hitbox and the defender's
+hurtbox in `Match::update`. Knockback follows the design doc's
+`base * (1 + damage / divisor)` formula in `src/Gameplay/CombatConfig.h`.
+Debug overlays (red hitbox outline during an attack, green hurtbox
+outline on the body) are drawn and will be removed when real art lands
+in M6.
 
-M3 (Combat + Hitboxes) is next; the orchestrator doc defines it in
-section 36. We do not auto-start M3 - per section 34 of the orchestrator
-doc, we wait for an explicit owner request.
+M2 — Movement + Physics + Arena — is complete. One M2 bug was found
+and fixed during M3 testing: `Arena::resolve_collision` had its
+`push_up` / `push_down` variables named the wrong way around, so the
+branch that should LAND a fighter on top of a platform was the one
+that BONKED, and vice versa. The M2 smoke test had not exercised the
+collision path, so the bug went unnoticed until the M3 headless combat
+harness tried to fall a fighter onto the floor.
+
+M4 (Damage / Knockback / Stocks + UI for damage %, hit spark, KO) is
+next. M5 is the deterministic AI opponent. We do not auto-start M4
+without an explicit owner request (per orchestrator doc §34).
 
 ## Build & run
 
@@ -64,11 +76,17 @@ src/
     Math.h                 Vec2 + Aabb primitives (header-only)
     Time.{h,cpp}           capped delta-time clock
   Gameplay/
-    Fighter.{h,cpp}        fighter entity: motion step, collision, render
-    InputMap.{h,cpp}       keyboard -> PlayerIntent (only place SDLK lives
-                           outside InputManager)
+    Attack.{h,cpp}         attack table (startup/active/recovery, hitbox,
+                           damage, knockback, hitstun) + active-window
+                           helpers; kAttacks[] is the single source of
+                           attack tuning
+    CombatConfig.h         knockback formula + cap constants
+    Fighter.{h,cpp}        fighter entity: state machine (Idle/Attacking/
+                           Hitstun/Dead), motion step, collision, render
+    InputMap.{h,cpp}       keyboard -> PlayerIntent + CombatIntent (only
+                           place SDLK lives outside InputManager)
     Match.{h,cpp}          owns 2 fighters + the arena; per-frame update
-                           and render
+                           runs fighter updates, resolves hits, respawns
   Graphics/
     Window.{h,cpp}         RAII wrapper over SDL_Window
     Renderer.{h,cpp}       RAII wrapper over SDL_Renderer; draw helpers
@@ -190,6 +208,28 @@ it, all outlined in yellow), a red P1 on the left and a blue P2 on the
 right, both sitting on the main platform. Moving and jumping should
 work; falling off the bottom should respawn at the starting position.
 
+For M3 the visual baseline adds: a green hurtbox outline on each
+fighter body, plus a red active-hitbox outline on whichever fighter is
+currently mid-swing. Press `J`/`K` (P1) or numpad `1`/`2` (P2) on the
+ground to throw a Jab or Forward Tilt, and `L` / numpad `3` in the air
+for a Neutral Air. The opponent should flinch (knockback) and gain
+damage %. After enough accumulated damage, a single attack will launch
+them off the stage; they auto-respawn for now (the M5 respawn timer
+replaces that).
+
+### Headless test harness (scratch tests)
+
+For purely-logical changes (state machines, formulas, geometry), the
+production binary's smoke test isn't enough — there's no easy way to
+press specific keys at specific frames. The pattern that works on this
+toolchain is to write a small `.cpp` file under `build\` that includes
+the gameplay headers, compile it against the same sources with
+`cl /std:c++latest /EHsc ... SDL3.lib`, and assert in `main()`. The
+M3 scratch test (45 cases, 0 failures) was written this way; it
+caught an M2-era collision bug that the smoke test had missed because
+the smoke test never actually moves fighters. The test code and the
+intermediate `obj/` and `.exe` artifacts are deleted before commit.
+
 ## Git
 
 Single branch: `master`. Commits use `openhands` as author.
@@ -197,4 +237,6 @@ Working commits to date:
 * `004ab5a` - M1 foundation
 * `388682a` - AGENTS.md bootstrap
 * `d80ce00` - master orchestrator doc adoption
-* *(this session)* - M2 movement + physics + arena
+* `853062a` - M2 movement + physics + arena
+* *(this session)* - M3 combat + hitboxes (Jab, FTilt, NAir) + M2
+  resolve_collision bugfix
