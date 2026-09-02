@@ -66,10 +66,18 @@ set(EMBER_SOURCES
     src/Core/Logger.cpp
     src/Core/Time.cpp
 
+    src/Gameplay/Fighter.cpp
+    src/Gameplay/InputMap.cpp
+    src/Gameplay/Match.cpp
+
     src/Graphics/Renderer.cpp
     src/Graphics/Window.cpp
 
     src/Input/InputManager.cpp
+
+    src/Physics/Motion.cpp
+
+    src/World/Arena.cpp
 )
 
 add_executable(EmberClash ${EMBER_SOURCES})

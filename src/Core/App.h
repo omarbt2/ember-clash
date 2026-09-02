@@ -6,6 +6,7 @@ namespace ember {
 
 class Clock;
 class InputManager;
+class Match;
 class Renderer;
 class Window;
 
@@ -32,10 +33,10 @@ private:
     void handle_events();
     void update(double dt);
     void render();
-    void draw_placeholder_scene(double elapsed);
 
     std::unique_ptr<Clock>        clock_;
     std::unique_ptr<InputManager> input_;
+    std::unique_ptr<Match>        match_;
     std::unique_ptr<Window>       window_;
     std::unique_ptr<Renderer>     renderer_;
     bool                          sdl_initialized_{false};

@@ -4,8 +4,10 @@ A 2D 1v1 platform fighter inspired by the *Smash Bros.* damage-and-knockback
 formula. Built from scratch in **C++20** with **SDL3**, no traditional game
 engine, on **CMake**.
 
-> **Current milestone: foundation (M1).** The project builds and runs a
-> minimal main loop with placeholder rendering. Combat, physics, AI, and
+> **Current milestone: M2 — Movement + Physics + Arena.** Two fighters can
+> walk, jump (with a double jump), fast-fall, and collide with the platform
+> layout. Keyboard controls are wired through the input layer; a fighter
+> that falls off the stage respawns. Combat, AI, match flow, art, and
 > mobile ports arrive in later milestones.
 
 ---
@@ -64,17 +66,20 @@ cmake --build build
 build\bin\EmberClash.exe
 ```
 
-Controls (placeholder; rebinding lands later):
+Controls (keyboard, two players on one keyboard):
 
-| Key        | Action                                  |
-| ---------- | --------------------------------------- |
-| `Esc`      | Quit                                    |
-| `F11`      | Toggle fullscreen *(reserved, M1 stub)* |
-| Any key    | Used to verify input handling           |
+| Action          | Player 1 (red) | Player 2 (blue) |
+| --------------- | -------------- | --------------- |
+| Move left       | `A`            | `←`             |
+| Move right      | `D`            | `→`             |
+| Jump (also double-jump) | `W` or `Space` | `↑`        |
+| Fast-fall       | `S` (in air)   | `↓` (in air)    |
+| Quit            | `Esc`          | `Esc`           |
 
-You should see a dark blue background, a light-blue floor with a yellow
-outline, and two coloured "fighter" boxes bobbing gently on either side —
-proof that the loop, delta time, renderer, and input system are wired up.
+You should see a dark navy background, a light-blue arena (main floor plus
+two elevated side platforms) outlined in yellow, and a red and a blue
+fighter. Both fighters can walk, jump (and double-jump), and fast-fall.
+Falling off the stage respawns them at their starting position.
 
 ---
 
@@ -87,36 +92,46 @@ proof that the loop, delta time, renderer, and input system are wired up.
 ├── README.md                 This file
 ├── .gitignore
 └── src/
-    ├── main.cpp              Entry point
+    ├── main.cpp                 Entry point
     ├── Core/
-    │   ├── App.{h,cpp}       Subsystem orchestrator + main loop
-    │   ├── Config.h          Window/timing/palette constants
-    │   ├── Logger.{h,cpp}    Tiny thread-safe console logger
-    │   └── Time.{h,cpp}      Clock + capped delta time
+    │   ├── App.{h,cpp}          Subsystem orchestrator + main loop
+    │   ├── Config.h             Window/timing/palette constants
+    │   ├── Logger.{h,cpp}       Tiny thread-safe console logger
+    │   ├── Math.h               Vec2 + Aabb primitives
+    │   └── Time.{h,cpp}         Clock + capped delta time
+    ├── Gameplay/
+    │   ├── Fighter.{h,cpp}      Fighter entity (motion, collide, render)
+    │   ├── InputMap.{h,cpp}     Keyboard → PlayerIntent
+    │   └── Match.{h,cpp}        Owns arena + two fighters
     ├── Graphics/
-    │   ├── Window.{h,cpp}    SDL_Window RAII wrapper
-    │   └── Renderer.{h,cpp}  SDL_Renderer wrapper + draw helpers
+    │   ├── Window.{h,cpp}       SDL_Window RAII wrapper
+    │   └── Renderer.{h,cpp}     SDL_Renderer wrapper + draw helpers
     ├── Input/
-    │   └── InputManager.{h,cpp}  Keyboard state, polled each frame
-    └── Physics/
-        └── PhysicsConfig.h   Tuning constants (wired in M2)
+    │   └── InputManager.{h,cpp} Keyboard state, polled each frame
+    ├── Physics/
+    │   ├── Motion.{h,cpp}       Pure per-tick motion step
+    │   └── PhysicsConfig.h      Tuning constants (gravity, walk, jump, ...)
+    └── World/
+        └── Arena.{h,cpp}        Platform list + collision + render
 ```
 
-Future modules (`Gameplay`, `World`, `Audio`, `UI`) will land in their own
-milestones and only when they have content.
+`Audio/` and `UI/` will land in their own milestones and only when they
+have content.
 
 ---
 
 ## Roadmap (high-level)
 
-1. **M1 — Foundation** (this milestone): build, window, renderer, loop,
+1. **M1 — Foundation** *(complete)*: build, window, renderer, loop,
    delta time, input, placeholder scene.
-2. **M2 — Physics & arena**: gravity, jumping, platforms, collision,
-   death zones, the main arena layout.
+2. **M2 — Movement + Physics + Arena** *(this milestone)*: gravity,
+   walk, single & double jump, fast-fall, platform collision, death
+   zone with respawn, the main arena layout, keyboard input wired
+   through the input layer.
 3. **M3 — Combat**: hitboxes, hurtboxes, damage %, knockback, one or two
    sample moves.
 4. **M4 — AI opponent**: deterministic state machine.
-5. **M5 — Match flow**: KO, respawn, rematch.
+5. **M5 — Match flow**: KO, stocks, respawn timer, rematch.
 6. **M6+**: final art, animation, audio, mobile (Android) port, web
    (Emscripten) port.
 
