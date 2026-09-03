@@ -71,6 +71,7 @@ set(EMBER_SOURCES
     src/Gameplay/Attack.cpp
     src/Gameplay/AiController.cpp
     src/Gameplay/Fighter.cpp
+    src/Gameplay/Sprite.cpp
     src/Gameplay/InputMap.cpp
     src/Gameplay/Match.cpp
 

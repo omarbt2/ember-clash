@@ -28,7 +28,9 @@ Vec2 apply_gravity_only(Vec2 v, bool fast_fall_held) {
 
 Fighter::Fighter(int player_index, const Arena& arena)
     : player_index_(player_index),
-      color_(player_index == 0 ? config::kFighterP1 : config::kFighterP2) {
+      color_(player_index == 0 ? config::kFighterP1 : config::kFighterP2),
+      sprite_(std::make_unique<Sprite>(
+          player_index == 0 ? art::kPaletteP1 : art::kPaletteP2)) {
     respawn(arena);
 }
 
@@ -221,20 +223,49 @@ void Fighter::render(Renderer& renderer) const {
     if (dead_) {
         return;
     }
-    renderer.draw_filled_rect(
-        {body_.x, body_.y, body_.w, body_.h},
-        color_);
+
+    // M6-A: blit the procedural sprite. The sprite is drawn centered on
+    // the body box (which is 48x64 source pixels), with the extra 8 px of
+    // margin on each side giving room for the silhouette to extend (e.g.
+    // attack frames in M6-B). The flip parameter mirrors the sprite so the
+    // fighter faces the opponent without needing a second texture.
+    if (sprite_) {
+        const float sprite_w = static_cast<float>(
+            Sprite::kSize * art::kRenderPixelSize);
+        const float sprite_h = static_cast<float>(
+            Sprite::kSize * art::kRenderPixelSize);
+        // Anchor: place the sprite so its 48x64 body region lines up with
+        // body_. The body_ is 48x64 in render-space; we offset the sprite
+        // by half the (sprite - body) width to keep the body region
+        // centered inside the sprite.
+        const float dx = (sprite_w - body_.w) * 0.5f;
+        const float dy = (sprite_h - body_.h) * 0.5f;
+        renderer.draw_sprite(
+            *sprite_,
+            { body_.x - dx, body_.y - dy, sprite_w, sprite_h },
+            art::kRenderPixelSize,
+            /*flip_horizontal=*/facing_ < 0);
+    }
+
     // M5: flashing outline during post-respawn invulnerability. The exact
     // pattern doesn't matter; this is a debug aid that ships in M5 to make
-    // the invuln window visible without UI text.
-    const config::Color outline = (invuln_frames_ > 0)
-        ? config::kHudTextColor
-        : config::kAccentColor;
-    renderer.draw_rect_outline(
-        {body_.x, body_.y, body_.w, body_.h},
-        outline);
+    // the invuln window visible without UI text. M6-A: now drawn around
+    // the actual sprite (not the inner body box) so the outline doesn't
+    // look like it's cutting off the silhouette.
+    if (invuln_frames_ > 0) {
+        const float sprite_w = static_cast<float>(
+            Sprite::kSize * art::kRenderPixelSize);
+        const float sprite_h = static_cast<float>(
+            Sprite::kSize * art::kRenderPixelSize);
+        const float dx = (sprite_w - body_.w) * 0.5f;
+        const float dy = (sprite_h - body_.h) * 0.5f;
+        renderer.draw_rect_outline(
+            { body_.x - dx, body_.y - dy, sprite_w, sprite_h },
+            config::kHudTextColor);
+    }
 
-    // Active hitbox overlay (M3 debug aid; M6 will replace with real art).
+    // Active hitbox overlay (M3 debug aid; M6-C will replace with real
+    // VFX). Kept on top of the sprite so combat behavior remains visible.
     if (state_ == State::Attacking) {
         const Aabb hb = active_hitbox();
         if (hb.w > 0.0f && hb.h > 0.0f) {

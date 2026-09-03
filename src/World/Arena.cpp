@@ -2,7 +2,10 @@
 
 #include "Core/Config.h"
 #include "Core/Logger.h"
+#include "Gameplay/ArtConfig.h"
 #include "Graphics/Renderer.h"
+
+#include <algorithm>
 
 namespace ember {
 
@@ -103,13 +106,45 @@ bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
 }
 
 void Arena::render(Renderer& renderer) const {
+    // M6-A: vertical gradient background (top -> bottom) for soft depth.
+    // The whole stage is one band, so we can pass a single rect spanning
+    // the render width. The death-zone tint below the floor is the same
+    // gradient, so a fighter that falls into it visually warns the player
+    // they are out of bounds.
+    const float W = static_cast<float>(config::kRenderWidth);
+    const float H = static_cast<float>(config::kRenderHeight);
+    renderer.draw_vertical_gradient(
+        { 0.0f, 0.0f, W, H },
+        art::kArenaBackgroundTop,
+        art::kArenaBackgroundBottom);
+    // Death-zone band: a thin red strip just below the floor to telegraph
+    // where the kill plane is. M6 will animate the strip later; for now
+    // a static band is enough to communicate the rule.
+    if (death_zone_y_ < H + 32.0f) {
+        renderer.draw_filled_rect(
+            { 0.0f, death_zone_y_ - 6.0f, W, 12.0f },
+            art::kArenaDeathZoneTint);
+    }
+
     for (const Platform& p : platforms()) {
+        // Body: one solid color.
         renderer.draw_filled_rect(
             {p.aabb.x, p.aabb.y, p.aabb.w, p.aabb.h},
-            config::kArenaColor);
-        renderer.draw_rect_outline(
-            {p.aabb.x, p.aabb.y, p.aabb.w, p.aabb.h},
-            config::kAccentColor);
+            art::kArenaPlatformBody);
+        // Top rim: a thin highlight strip on the top edge of the
+        // platform so it reads as a 3D surface and not a flat color.
+        const float rim = std::min<float>(4.0f, p.aabb.h);
+        renderer.draw_filled_rect(
+            {p.aabb.x, p.aabb.y, p.aabb.w, rim},
+            art::kArenaPlatformTop);
+        // Outline: bright yellow on the main floor only, so the side
+        // platforms stay quieter than the center stage.
+        const bool is_main_floor = (p.aabb.w >= W - 1.0f);
+        if (is_main_floor) {
+            renderer.draw_rect_outline(
+                {p.aabb.x, p.aabb.y, p.aabb.w, p.aabb.h},
+                art::kArenaPlatformRim);
+        }
     }
 }
 

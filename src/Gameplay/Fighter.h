@@ -2,10 +2,13 @@
 
 #include "Core/Math.h"
 #include "Core/Config.h"
+#include "Gameplay/ArtConfig.h"
 #include "Gameplay/Attack.h"
+#include "Gameplay/Sprite.h"
 #include "Physics/Motion.h"
 
 #include <cstdint>
+#include <memory>
 
 namespace ember {
 
@@ -110,6 +113,14 @@ private:
     int   damage_percent_{0};
     int   facing_{1};
     config::Color color_{};
+
+    // M6-A: per-fighter procedural sprite. Built from
+    // art::palette_for(player_index) at construction. The sprite owns its
+    // own RGBA buffer; the Renderer uploads it lazily into an
+    // SDL_Texture (see Renderer::draw_sprite). M6-B will swap the single
+    // idle frame for an animation strip; the Fighter-side interface
+    // (a single sprite the renderer blits) stays the same.
+    std::unique_ptr<Sprite> sprite_;
 
     // Combat state
     State     state_           {State::Idle};

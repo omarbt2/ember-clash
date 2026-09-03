@@ -23,56 +23,37 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**M8 — WebAssembly / release integration (this milestone).** Desktop
-is still the reference platform; the codebase is now also buildable
-for the browser via Emscripten. M8 is the smallest coherent set of
-changes that makes that work without touching any gameplay code:
+**M6 — Art, Animation, Audio, UI & Polish (in progress).** M6-A is
+the only slice done so far: the placeholder colored-AABB fighters
+were replaced with a procedurally-generated 64×64 pixel sprite
+(head + torso + arms + legs, no external asset file I/O), the arena
+got a vertical-gradient background and proper top-highlight /
+bottom-shadow platform shading, and a thin red death-zone tint band
+sits just under the main floor. New files: `src/Gameplay/ArtConfig.h`,
+`src/Gameplay/Sprite.{h,cpp}`. The renderer gained
+`Renderer::draw_sprite()` plus a 4-slot lazy `SDL_Texture` cache
+keyed on `Sprite*` identity so the cost is amortized to a single
+`SDL_UpdateTexture` per sprite per App lifetime. `Fighter::render()`
+now blits the sprite centred on the body, with the existing M3
+hitbox / hurtbox debug outlines preserved on top (they will be
+removed in M6-C). All previous headless regressions still pass
+(M4 AI 14/14, M5 match flow 14/14, M6-A art 5/5 scenarios / 12
+asserts, M8 surface compile-time).
 
-* `App::run` was split into `App::step(double dt)` (one frame of
-  work) + `App::run` (the desktop blocking loop) + `App::request_exit()`.
-  The split is the only refactor. `Match`, `Fighter`, AI, physics,
-  combat, HUD, and bitmap font are untouched. The full M4 + M5
-  regression suite (28/28 asserts) still passes.
-* `src/main_emscripten.cpp` (compiled only when the toolchain
-  defines `EMSCRIPTEN`) is a 60-line file that calls
-  `emscripten_set_main_loop()` with a trampoline that invokes
-  `app.step(dt)`. The desktop `src/main.cpp` (`int SDL_main`) is
-  unchanged. So there is exactly one platform boundary in the whole
-  codebase, and it is tiny.
-* The top-level `CMakeLists.txt` gained an `if(EMSCRIPTEN) ... else()`
-  branch: on web it adds `main_emscripten.cpp` to the target, sets
-  `SUFFIX ""` so Emscripten produces the `.html`/`.js`/`.wasm` triple,
-  and links `-sUSE_SDL=3 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1`.
-  ASYNCIFY is **not** enabled; the loop is plain synchronous C++ and
-  ASYNCIFY would just bloat the .wasm. On desktop the existing path
-  (SDL3.dll copy, Visual Studio generator) is preserved bit-for-bit.
-* `tests/ember_test_m8.cpp` is a tiny pure-compile-time harness
-  (`static_assert`s on the `App::step` / `App::run` /
-  `App::request_exit` signatures) that catches any future signature
-  drift before it silently breaks the web build. It also
-  **regression-tests the M8 discovery** that the M4 / M5 test runners
-  hard-code `/MDd` and therefore require the main game to be in
-  `Debug` — a fact that is now documented in their header comments.
+**Active sequence** (per the master orchestrator):
+M6 → M7 → M11 → M12. M9 (local multiplayer) and M10 (online) are
+**MISSING** in the codebase and are NOT in the active sequence; M11
+online hardening is **BLOCKED** until M9+M10 actually exist, and M12
+final release is **BLOCKED** until M6+M7+M9+M10+M11 are real. We do
+not claim M11 "done" on online features that do not exist; we
+explicitly call the gap out instead.
 
-M5 — Match flow — is complete. Each fighter starts with 3 stocks; a
-KO schedules a respawn after `kRespawnDelaySeconds` (0.5s) with
-`kRespawnInvulnSeconds` (1.5s) of invulnerability; a `GAME!` banner
-shows for `kKoBannerInitialSeconds` (1.5s) and then a `P1/P2 WINS -
-PRESS R` prompt; `R` rematches via `App::step -> Match::reset`. The
-HUD (top-left P1 card, top-right P2 card) draws three stock pips in
-the player's color plus a 2x-scaled damage %; the damage % also
-floats above each fighter's head; each landed hit briefly renders a
-yellow `+` spark at the impact point for `kHitSparkFrames` (6)
-frames. All UI is rendered with a hand-rolled 4x6 monospace bitmap
-font (`src/UI/BitmapFont.cpp`) — no SDL_ttf dependency, no font
-asset to ship.
-
-M4 — AI opponent — is complete. Six FSM states, xorshift32 RNG,
-`ember::ai::Difficulty` tuning struct, headless test (14/14).
-
-M6 (art + audio + UI + polish) and M7 (Android) are deferred. We do
-not auto-start them without an explicit owner request (per
-orchestrator doc §34).
+**M6-A work ended clean**: `CMakeLists.txt` was patched to add
+`src/Gameplay/Sprite.cpp` to `EMBER_SOURCES`, the M4 and M5 test
+runner OBJS lists were both updated to include `Sprite.cpp.obj` so
+all three test harnesses link, and `Sprite.h`'s now-incorrect
+"kSilhouette / kFighterSpriteSize" doc comment was rewritten to
+match the actual palette-indexed layout.
 
 ## Build & run
 
@@ -164,9 +145,10 @@ src/
     Arena.{h,cpp}          platform list + AABB collision + render
 ```
 
-`Audio/` is still **not** created - it lands in its own milestone when
-we have something to play. `UI/` is live in M5; don't create empty
-stub headers in other namespaces just to "reserve" them.
+`Audio/` is **not yet created** - it lands in the M6-D slice
+(procedural / synthesized SFX + simple SFX triggers wired into the
+combat spark + UI clicks). Until then, do not create empty stub
+headers there just to "reserve" the namespace. `UI/` is live in M5.
 
 ## Operating policy (from the orchestrator doc)
 
@@ -413,8 +395,18 @@ Working commits to date:
 * `388682a` - AGENTS.md bootstrap
 * `d80ce00` - master orchestrator doc adoption
 * `853062a` - M2 movement + physics + arena
-* `...`     - M3 combat + hitboxes (Jab, FTilt, NAir) + M2
+* `3ed9244` - M3 combat + hitboxes (Jab, FTilt, NAir) + M2
   resolve_collision bugfix
-* `...`     - M4 AI opponent + headless test (14/14)
-* *(this session)* - M5 match flow (stocks, respawn, KO banner,
-  rematch, HUD) + headless test (14/14)
+* `c869474` - M4 AI opponent + headless test (14/14)
+* `62e9dc3` - M5 match flow (stocks, respawn, KO banner, rematch,
+  HUD) + headless test (14/14)
+* `b1bc2a6` - M8 WebAssembly / release integration (per-milestone
+  tag, App::step / run / request_exit split + main_emscripten.cpp)
+* `2ed21fe` - M8 web build verified end-to-end (emcmake configure +
+  build, .js + .wasm copied into web/, smoke-tested over local
+  HTTP server)
+* *(this session)* - M6-A art identity + procedural pixel-art
+  sprite + arena gradient + death-zone band; M6 test harness
+  (5 scenarios / 12 asserts); M4 / M5 test runners patched to
+  link Sprite.cpp.obj; docs reconciled (was wrongly listing M8 as
+  current milestone and M6/M7 as deferred)

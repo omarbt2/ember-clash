@@ -1,11 +1,16 @@
 #include "Graphics/Renderer.h"
 
 #include "Core/Logger.h"
+#include "Gameplay/Sprite.h"
 #include "Graphics/Window.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_render.h>
 
+#include <array>
+#include <algorithm>
+#include <cstdint>
+#include <cstring>
 #include <string>
 
 namespace ember {
@@ -14,6 +19,25 @@ namespace {
 
 void set_draw_color(SDL_Renderer* r, config::Color c) {
     SDL_SetRenderDrawColor(r, c.r, c.g, c.b, c.a);
+}
+
+// Picks the cache slot to use for the given Sprite. We try, in order:
+//   1) an existing entry that matches the key (return it for update),
+//   2) an empty slot (return it to fill),
+//   3) slot 0 as a last-resort eviction target. With kSpriteCacheSlots
+//      = 4 and only two sprites (P1 + P2) in practice, paths 1 and 2
+//      cover the steady state.
+Renderer::SpriteCacheSlot* find_slot(
+        std::array<Renderer::SpriteCacheSlot,
+                   Renderer::kSpriteCacheSlots>& cache,
+        const Sprite* key) {
+    for (auto& entry : cache) {
+        if (entry.key == key) return &entry;
+    }
+    for (auto& entry : cache) {
+        if (entry.key == nullptr) return &entry;
+    }
+    return &cache[0];
 }
 
 } // namespace
@@ -46,6 +70,16 @@ Renderer::Renderer(Window& window) {
 }
 
 Renderer::~Renderer() {
+    // Free any cached sprite textures first; they were created with this
+    // renderer's SDL_CreateTexture, so they must be released while the
+    // renderer is still alive.
+    for (auto& entry : sprite_cache_) {
+        if (entry.texture) {
+            SDL_DestroyTexture(entry.texture);
+            entry.texture = nullptr;
+        }
+        entry.key = nullptr;
+    }
     if (renderer_) {
         SDL_DestroyRenderer(renderer_);
         renderer_ = nullptr;
@@ -70,6 +104,96 @@ void Renderer::draw_rect_outline(const Rect& rect, config::Color color) {
     const SDL_FRect sdl_rect{ rect.x, rect.y, rect.w, rect.h };
     set_draw_color(renderer_, color);
     SDL_RenderRect(renderer_, &sdl_rect);
+}
+
+void Renderer::draw_sprite(const Sprite& sprite,
+                           const Rect& dst,
+                           int pixel_size,
+                           bool flip_horizontal) {
+    if (!renderer_) return;
+    if (pixel_size <= 0) return;
+
+    auto* slot = find_slot(sprite_cache_, &sprite);
+
+    // Lazy upload. We only build the SDL_Texture the first time we see
+    // this Sprite. The texture is streaming, so future updates (in M6-B
+    // when frames change) are a single SDL_UpdateTexture call.
+    if (slot->key != &sprite) {
+        // We may be evicting an existing texture (slot was full). Free it
+        // before replacing so we don't leak.
+        if (slot->texture) {
+            SDL_DestroyTexture(slot->texture);
+            slot->texture = nullptr;
+        }
+        SDL_Texture* tex = SDL_CreateTexture(
+            renderer_,
+            SDL_PIXELFORMAT_RGBA32,
+            SDL_TEXTUREACCESS_STATIC,
+            Sprite::kSize,
+            Sprite::kSize);
+        if (!tex) {
+            Logger::warn(std::string{"SDL_CreateTexture: "} + SDL_GetError());
+            return;
+        }
+        SDL_SetTextureBlendMode(tex, SDL_BLENDMODE_BLEND);
+        if (!SDL_UpdateTexture(tex, nullptr,
+                              sprite.pixels_rgba(),
+                              Sprite::kSize * 4)) {
+            Logger::warn(std::string{"SDL_UpdateTexture: "} + SDL_GetError());
+            SDL_DestroyTexture(tex);
+            return;
+        }
+        slot->key      = &sprite;
+        slot->texture  = tex;
+    }
+
+    SDL_FRect dst_rect{
+        dst.x, dst.y,
+        static_cast<float>(Sprite::kSize * pixel_size),
+        static_cast<float>(Sprite::kSize * pixel_size),
+    };
+    if (flip_horizontal) {
+        SDL_RenderTextureRotated(renderer_, slot->texture, nullptr, &dst_rect,
+                                 0.0, nullptr, SDL_FLIP_HORIZONTAL);
+    } else {
+        SDL_RenderTexture(renderer_, slot->texture, nullptr, &dst_rect);
+    }
+}
+
+void Renderer::draw_vertical_gradient(const Rect& rect,
+                                     config::Color top,
+                                     config::Color bottom) {
+    if (!renderer_) return;
+    // Approximate a smooth gradient with a stack of 1-px-tall horizontal
+    // bands. Cheap, deterministic, no shaders required. We choose a band
+    // height of 2 px for a small-but-not-perceptible dither; SDL's
+    // scaling to the window is the dominant cost anyway.
+    const float h = rect.h;
+    if (h <= 0.0f) return;
+    const int bands = std::max(1, static_cast<int>(h / 2.0f));
+    const float step = h / static_cast<float>(bands);
+    for (int i = 0; i < bands; ++i) {
+        const float t0 = static_cast<float>(i)     / static_cast<float>(bands);
+        const float t1 = static_cast<float>(i + 1) / static_cast<float>(bands);
+        const float tm = 0.5f * (t0 + t1);
+        const auto lerp = [tm](std::uint8_t a, std::uint8_t b) {
+            return static_cast<std::uint8_t>(
+                static_cast<int>(a) +
+                static_cast<int>(static_cast<float>(b) - static_cast<float>(a)) * tm);
+        };
+        config::Color c{
+            lerp(top.r, bottom.r),
+            lerp(top.g, bottom.g),
+            lerp(top.b, bottom.b),
+            lerp(top.a, bottom.a),
+        };
+        const SDL_FRect band{ rect.x,
+                              rect.y + step * static_cast<float>(i),
+                              rect.w,
+                              step + 0.5f };
+        set_draw_color(renderer_, c);
+        SDL_RenderFillRect(renderer_, &band);
+    }
 }
 
 void Renderer::present() {
