@@ -8,7 +8,11 @@
 #include "Audio/Audio.h"
 #include "Core/Logger.h"
 #include "Core/Settings.h"
+#include "Gameplay/AiConfig.h"
+#include "Gameplay/AiController.h"
+#include "Gameplay/Match.h"
 #include "Input/Gamepad.h"
+#include "Input/InputManager.h"
 #include "UI/Menu.h"
 
 #include <cstdio>
@@ -259,6 +263,116 @@ int main() {
 
         std::remove(path.c_str());
     }
+
+    // ---- 9. Playability gate: pause / rematch / start-stop of the
+    // match state machine. The Menu's contract is that
+    // blocks_simulation() returns true in every state that is
+    // not kPlay; that contract is what App::update uses to decide
+    // whether to call match_->update() this frame. If the
+    // contract breaks, physics / AI / timers / animations /
+    // respawn / hit-stop all keep ticking while the player is
+    // staring at the pause menu, which is the bug.
+    section("playability gate: pause / rematch block simulation");
+    {
+        Menu menu;
+        Settings s = Settings();
+        menu.bind_settings(&s);
+
+        // Title blocks.
+        check(menu.state() == Menu::State::kTitle, "starts in kTitle");
+        check(menu.blocks_simulation(), "kTitle blocks simulation");
+
+        // After kMatchStarted, we should be in kPlay and NOT
+        // blocking.
+        menu.push_event(Menu::Event::kMatchStarted);
+        check(menu.state() == Menu::State::kPlay,
+              "kMatchStarted -> kPlay");
+        check(!menu.blocks_simulation(),
+              "kPlay does NOT block simulation (the contract)");
+
+        // After kMatchPaused, the menu is kPaused and the match
+        // must NOT be allowed to tick.
+        menu.push_event(Menu::Event::kMatchPaused);
+        check(menu.state() == Menu::State::kPaused,
+              "kMatchPaused -> kPaused");
+        check(menu.blocks_simulation(),
+              "kPaused blocks simulation (no physics, no AI, no timers)");
+
+        // While paused, a follow-up kMatchPaused should NOT
+        // unpause (the menu reads kMatchResumed to unpause).
+        // We assert that the state is still kPaused.
+        menu.push_event(Menu::Event::kMatchPaused);
+        check(menu.state() == Menu::State::kPaused,
+              "double-pause stays paused (kMatchResumed required to unpause)");
+
+        // kMatchResumed returns to kPlay.
+        menu.push_event(Menu::Event::kMatchResumed);
+        check(menu.state() == Menu::State::kPlay,
+              "kMatchResumed -> kPlay");
+        check(!menu.blocks_simulation(),
+              "kPlay after resume: blocks_simulation == false");
+
+        // kMatchEnded -> kRematch which blocks.
+        menu.push_event(Menu::Event::kMatchEnded);
+        check(menu.state() == Menu::State::kRematch,
+              "kMatchEnded -> kRematch");
+        check(menu.blocks_simulation(),
+              "kRematch blocks simulation (no respawn drift, no KO-shake animation timer)");
+    }
+
+    // ---- 10. Playability gate: Match::reset clears all residual state.
+    // This is what App::reset_match() calls when the player
+    // picks REMATCH. If any field sticks, the next match would
+    // start with a poisoned state (e.g. last stock gone, KO
+    // shake still armed, hit-stop still active).
+    section("playability gate: Match::reset clears residual state");
+    {
+        // Use a no-op input (no keys held) so the match
+        // advances via the AI only. InputManager has the same
+        // test seam M6-C uses: begin_frame_for_test() snapshots
+        // the previous state, then we set or clear held keys
+        // for the upcoming frame.
+        ember::InputManager input;
+        Match m;
+        m.set_ai(1, std::make_unique<ember::AiController>(ember::ai::kStandard));
+        const uint64_t h0 = m.state_hash();
+        check(h0 != 0ull, "fresh match has non-zero state_hash");
+
+        // 120 ticks of pure-AI play. No human input. 120 frames
+        // (2 seconds) is well past the default AI reaction delay
+        // AND enough time for P1 (the bot) to walk measurably
+        // toward P0, so we expect a different state_hash.
+        constexpr int kTicks = 120;
+        for (int i = 0; i < kTicks; ++i) {
+            input.begin_frame_for_test();
+            m.update(input, 1.0 / 60.0);
+        }
+        const uint64_t h1 = m.state_hash();
+        check(h1 != h0, "match state_hash changes after 120 ticks");
+
+        // Reset. The new state_hash should equal the fresh
+        // match's state_hash exactly (same RNG seed, same
+        // spawn positions, same initial stocks).
+        m.reset();
+        const uint64_t h2 = m.state_hash();
+        check(h2 == h0, "post-reset state_hash == fresh state_hash");
+
+        // Re-run 120 ticks and confirm the hash sequence is
+        // bit-identical to the first 120-tick run. This is the
+        // real determinism contract for rematch: same seed +
+        // same inputs + same tick count = same hash.
+        for (int i = 0; i < kTicks; ++i) {
+            input.begin_frame_for_test();
+            m.update(input, 1.0 / 60.0);
+        }
+        const uint64_t h3 = m.state_hash();
+        check(h3 == h1, "post-reset 120-tick hash == pre-reset 120-tick hash (deterministic rematch)");
+    }
+
+    // ---- 11. (placeholder: see section 8 above for accessibility test)
+    // The section 8 test above is the canonical accessibility test;
+    // we keep this slot so future sections can be inserted in
+    // numeric order without renumbering.
 
     std::printf("\n=== M12-AUDIT ===\n");
     std::printf("M12-AUDIT: %d pass, %d fail\n", g_passed, g_total - g_passed);
