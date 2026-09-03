@@ -1,0 +1,11 @@
+@echo off
+call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul
+if errorlevel 1 (
+  echo Failed to load vcvars64
+  exit /b 1
+)
+pushd "%~dp0.."
+call "%~dp0run_m7_test.bat"
+set _m7=%errorlevel%
+popd
+exit /b %_m7%

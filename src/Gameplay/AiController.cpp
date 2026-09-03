@@ -167,9 +167,13 @@ void AiController::tick_approach(const Fighter& self,
     }
 
     // Opponent is in windup (Attacking) within ftilt range -> Defend briefly.
+    // M7-AI: this used to be a 50% roll on top of the range check, so
+    // the bot would still walk into obvious punished attacks roughly
+    // half the time. Always enter Defend when the opponent is in
+    // startup in range: backing off is strictly better than eating a
+    // ftilt that we know is coming.
     if (opp.state() == Fighter::State::Attacking
-        && in_ftilt_range(self, opp)
-        && rand_percent() < 50) {
+        && in_ftilt_range(self, opp)) {
         enter_state(State::Defend);
         return;
     }
@@ -340,14 +344,38 @@ void AiController::tick_defend(const Fighter& self,
                                const Fighter& opp,
                                const Arena& arena,
                                PlayerIntent& m, CombatIntent& c) {
-    // Stand still and wait out the windup. After the defend window, go
-    // back to Idle so the FSM re-evaluates.
-    (void)self; (void)opp; (void)m; (void)c;
+    // M7-AI: the previous version just stood still and waited out the
+    // opponent's windup. That is the worst of both worlds - we give
+    // up ground for free and still get clipped on the active frames.
+    // New contract: back away from the opponent for the duration of
+    // the windup window, and exit Defend early as soon as the
+    // opponent is no longer in the Attacking state.
     if (is_off_stage(self, arena)) {
         enter_state(State::Recover);
         return;
     }
+
+    // Opponent finished their swing early -> re-evaluate from Idle.
+    if (opp.state() != Fighter::State::Attacking) {
+        enter_state(State::Idle);
+        return;
+    }
+
+    // Steer away from the opponent on the horizontal axis. Body
+    // centers (not edges) so a fighter in the middle of being pushed
+    // is still pushed the right way.
+    const float my_cx  = self.body().x + self.body().w * 0.5f;
+    const float opp_cx = opp.body().x + opp.body().w * 0.5f;
+    if (my_cx < opp_cx) {
+        m.move_left  = true;
+    } else if (my_cx > opp_cx) {
+        m.move_right = true;
+    }
+
+    // Cap the defend window at the configured duration so a frozen
+    // opponent (e.g. invulnerable) cannot keep us retreating forever.
     if (state_ticks_ >= ai::kDefendDurationTicks) {
+        (void)c;
         enter_state(State::Idle);
     }
 }

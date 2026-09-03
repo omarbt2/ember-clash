@@ -54,6 +54,40 @@ struct Difficulty {
 // selections will add entries here.
 inline const Difficulty kStandard = Difficulty{};
 
+// M7-AI: explicit Easy / Hard presets alongside kStandard so the future
+// difficulty-select menu has a knob to hand the Match without us having
+// to retune the struct fields in a UI file.
+//
+// Tuning rationale:
+//   Easy:   reaction_delay = 70 (~1.2s, slow), attack_frequency = 35
+//           (rarely commits), recovery_priority = 50 (lazy recovery).
+//           Mostly approaches, baits, and occasionally whiffs. A new
+//           player can practice spacing and combos against this.
+//   Standard: the original M4 default. reaction_delay = 40,
+//           attack_frequency = 60, recovery_priority = 80. Honest bot
+//           with a real punish game.
+//   Hard:   reaction_delay = 18 (~0.3s, fast), attack_frequency = 85
+//           (commits in range almost always), recovery_priority = 95
+//           (never SDs). Tuned for the future "vs CPU" challenge tier;
+//           the M7 match ships against Standard by default.
+inline const Difficulty kEasy = Difficulty{
+    /*reaction_delay_ticks*/     70,
+    /*attack_frequency*/         35,
+    /*recovery_priority*/        50,
+    /*defensive_threshold_percent*/ 100,
+    /*jump_aggression*/          20,
+    /*seed*/                     0xE45Eu,
+};
+
+inline const Difficulty kHard = Difficulty{
+    /*reaction_delay_ticks*/     18,
+    /*attack_frequency*/         85,
+    /*recovery_priority*/        95,
+    /*defensive_threshold_percent*/ 70,
+    /*jump_aggression*/          55,
+    /*seed*/                     0xB0B5u,
+};
+
 // The bot's three "in range" distance thresholds, in world pixels. These
 // are read from the active hitbox reach (see src/Gameplay/Attack.cpp):
 //   Jab    - body + 50..78 (reach ~ 50 px past own body)
