@@ -129,13 +129,16 @@ int main() {
         check(s.master_mute == false, "reset_to_defaults restores master_mute");
     }
 
-    // ---- 3. Audio stub ---------------------------------------------------
-    section("audio stub");
+    // ---- 3. Audio backend -------------------------------------------------
+    section("audio backend");
     {
         Audio audio;
         audio.initialize();
-        check(!audio.backend_available(),
-              "backend_available() == false in V1.0");
+        // backend_available() is host-dependent: real machines with
+        // an audio device will report true, headless CI will report
+        // false. Either is acceptable; the contract is that
+        // initialize() is idempotent and the diagnostic API is
+        // observable in both cases.
         check(audio.play(SfxId::None) == false, "play(None) returns false");
         audio.reset_counters_for_test();
         audio.play(SfxId::MenuMove);
