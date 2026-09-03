@@ -23,7 +23,14 @@ void Arena::reset_default() {
     const float side_top    = floor_top - 160.0f; // side platforms 160 px higher
     const float thick       = 24.0f;              // platform thickness
     const float side_w      = 240.0f;
-    const float side_margin = 80.0f;
+    // Side platforms sit between the two spawn points so a fresh-spawn
+    // jump (body directly above the spawn x) does not bonk the platform
+    // ceiling. The previous 80-px margin placed the left platform at
+    // x=80..320, which fully covered the P1 spawn body (x=220..268),
+    // so a straight-up jump from spawn zeroed the rise velocity at the
+    // platform's underside. 280 px leaves a clean spawn column and
+    // still gives a 240-px-wide side platform to fight on.
+    const float side_margin = 280.0f;
 
     count_ = 0;
 

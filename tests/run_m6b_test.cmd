@@ -1,13 +1,15 @@
 @echo off
-REM Wrapper that loads vcvars64 then runs the M6-B test runner. PowerShell
-REM re-parses the (x86) Program Files path inside the VS env, so we use a
-REM .cmd / .bat pair: this .cmd is the one PowerShell calls into, and it
-REM delegates to run_m6b_test.bat (which only runs once vcvars64 is loaded).
-
-call "C:\Program Files (x86)\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul
+REM Wrapper that loads vcvars64 and then calls the real test script.
+REM Mirrors verify_desktop_build.bat's pattern. The 2019 BuildTools path
+REM is what the rest of the test infrastructure uses.
+setlocal
+call "C:\Program Files (x86)\Microsoft Visual Studio\2019\BuildTools\VC\Auxiliary\Build\vcvars64.bat" >nul 2>&1
 if errorlevel 1 (
-    echo [M6-B] failed to load vcvars64 - is VS Build Tools 2022 installed?
-    exit /b 1
+  echo Failed to load vcvars64
+  exit /b 1
 )
+pushd "%~dp0.."
 call "%~dp0run_m6b_test.bat"
-exit /b %errorlevel%
+set _rc=%errorlevel%
+popd
+exit /b %_rc%
