@@ -41,6 +41,7 @@ public:
     bool is_invulnerable() const { return invuln_frames_ > 0; }
     int  stocks() const { return stocks_; }
     int  damage_percent() const { return damage_percent_; }
+    int  jumps_remaining() const { return jumps_remaining_; }
     int  facing() const { return facing_; }                 // +1 or -1
     State state() const { return state_; }
     AttackId current_attack_id() const { return current_attack_id_; }

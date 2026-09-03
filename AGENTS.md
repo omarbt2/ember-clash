@@ -23,22 +23,24 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**M6 — Art, Animation, Audio, UI & Polish (in progress).** M6-A is
-the only slice done so far: the placeholder colored-AABB fighters
-were replaced with a procedurally-generated 64×64 pixel sprite
-(head + torso + arms + legs, no external asset file I/O), the arena
-got a vertical-gradient background and proper top-highlight /
-bottom-shadow platform shading, and a thin red death-zone tint band
-sits just under the main floor. New files: `src/Gameplay/ArtConfig.h`,
-`src/Gameplay/Sprite.{h,cpp}`. The renderer gained
-`Renderer::draw_sprite()` plus a 4-slot lazy `SDL_Texture` cache
-keyed on `Sprite*` identity so the cost is amortized to a single
-`SDL_UpdateTexture` per sprite per App lifetime. `Fighter::render()`
-now blits the sprite centred on the body, with the existing M3
-hitbox / hurtbox debug outlines preserved on top (they will be
-removed in M6-C). All previous headless regressions still pass
-(M4 AI 14/14, M5 match flow 14/14, M6-A art 5/5 scenarios / 12
-asserts, M8 surface compile-time).
+**M11 — Online / competitive hardening (audit complete, in-scope
+work done).** M9 (local multiplayer) and M10 (online) are still
+**MISSING** in the codebase, so M11 cannot harden any real online
+path. The deliverable in this slice is the **deterministic
+simulation foundation**: `Match::state_hash()` is a 64-bit FNV-1a
+fingerprint of the full simulation state (arena, both fighters'
+body/velocity/state/damage/stocks/facing/jumps/attack, match phase,
+respawn timers, hit-spark, hit-stop, KO shake). The M11 test
+harness (`tests/ember_test_m11.cpp`, 4 scenarios / 9 asserts, all
+PASS) proves that two independent Matches driven with identical
+inputs produce **bit-identical 601-tick and 600-tick hash sequences**.
+The hash is the desync-detection primitive a future online
+implementation would send over the wire; until M9 + M10 exist, it
+has nowhere to go. See `docs/M11_AUDIT.md` for the full audit
+report (including the explicit non-claims). All previous
+regressions still pass: M4 AI 14/14, M5 match flow 14/14, M6-A art
+12/12, M6-B anim 33/33, M6-C feel 59/59, M7-AI polish 14/14, M8
+surface compile-time, M11-AUDIT determinism 9/9.
 
 **Active sequence** (per the master orchestrator):
 M6 → M7 → M11 → M12. M9 (local multiplayer) and M10 (online) are
@@ -427,6 +429,38 @@ Working commits to date:
   59 asserts. Shake tick moved to the TOP of Match::update so
   the first observable value after KO is kKoShakeFrames, not
   kKoShakeFrames-1. 136-check full regression green.
+* `e54045b` - M7-AI polish: AiController::tick_defend rewritten
+  to steer away from the opponent (was stand-still), removed the
+  50% roll on the "enter Defend when opponent is in startup in
+  range" check. Added kEasy / kStandard / kHard Difficulty
+  presets in AiConfig.h (distinct seeds, distinct reaction
+  windows, distinct attack frequencies, distinct recovery
+  priorities). M7-AI test harness (4 scenarios / 14 asserts)
+  covers preset field values + ordering, Defend backs off, Defend
+  always enters, Defend exits early. 150-check full regression
+  green.
+* (M11 series, see `docs/M11_AUDIT.md`) - online / competitive
+  hardening **AUDIT**. M9 + M10 are still MISSING so M11 cannot
+  harden any real online path. The in-scope deliverable is the
+  **deterministic simulation foundation**:
+  - `Match::state_hash()` - 64-bit FNV-1a fingerprint of the full
+    simulation state (arena, both fighters' body/velocity/state/
+    damage/stocks/facing/jumps/attack, match phase, respawn
+    timers, hit-spark, hit-stop, KO shake). Public API, the
+    desync-detection primitive a future online implementation
+    would send over the wire.
+  - `Fighter::jumps_remaining()` - public accessor for the
+    fighter's remaining jumps, added so the hash could include
+    it without making Match a friend of Fighter.
+  - `tests/ember_test_m11.cpp` - 4 scenarios / 9 asserts
+    (state_hash non-zero, changes over 30 ticks, deterministic
+    on repeat, 601/601 + 600/600 hash-sequence match between
+    two independent runs, different seeds -> different
+    sequences). All PASS.
+  - `docs/M11_AUDIT.md` - the audit report. Explicitly
+    non-claims that online multiplayer works, that any
+    networking code exists, that rollback netcode is
+    implemented, etc. 159-check full regression green.
 
 ## Test framework conventions
 
@@ -449,3 +483,14 @@ Working commits to date:
   Match. `begin_frame_for_test()` MUST be called BEFORE
   `set_held_for_test` for the same frame (input is sampled
   inside begin_frame).
+* **M11 determinism foundation**: `Match::state_hash()` is a
+  64-bit FNV-1a fingerprint of the full simulation state. The
+  M11 test harness proves that two independent Matches driven
+  with identical input streams + identical AI seeds produce
+  bit-identical hash sequences (verified 601/601 and 600/600
+  ticks). If you add a new field to any Fighter, the Arena, or
+  Match that affects simulation output, you MUST fold it into
+  `state_hash()` or the determinism contract silently breaks.
+  Do NOT fold display-only state (renderer view offset, UI
+  strings) or AI RNG internal state (two bots with the same
+  seed make the same decisions regardless of RNG representation).

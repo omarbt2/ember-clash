@@ -5,6 +5,7 @@
 #include "World/Arena.h"
 
 #include <array>
+#include <cstdint>
 #include <memory>
 
 namespace ember {
@@ -88,6 +89,19 @@ public:
     // renderer's view offset.
     float ko_shake_offset_x() const { return ko_shake_offset_x_; }
     float ko_shake_offset_y() const { return ko_shake_offset_y_; }
+
+    // M11: deterministic state fingerprint. A 64-bit FNV-1a hash of every
+    // field that affects simulation output: arena (deterministic, but
+    // folded in for safety), both fighters (position, velocity, damage,
+    // stocks, state, attack_id, attack_frame, invuln, hitstun, jumps,
+    // facing), match phase, respawn timers, ko_banner_timer, hit-spark
+    // age + position, hit-stop frames, ko-shake frames + offset. Two
+    // Matches driven with identical inputs and identical AI seeds MUST
+    // produce identical state_hash() values on every tick. This is the
+    // desync-detection primitive that a future online implementation
+    // (M10) would send over the wire; it is also what the M11 test
+    // harness uses to prove determinism.
+    std::uint64_t state_hash() const;
 
     // Test-only convenience: respawn a specific fighter immediately and
     // grant the standard post-respawn invuln window. Production code uses

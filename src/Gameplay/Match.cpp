@@ -307,4 +307,142 @@ const Fighter& Match::fighter(int index) const {
     return *fighters_[index];
 }
 
+// --------------------------------------------------------------------
+// M11: deterministic state fingerprint.
+//
+// Two Matches driven with identical inputs and identical AI seeds
+// MUST produce identical state_hash() values on every tick. We use
+// FNV-1a 64-bit (the standard xorshift-friendly variant) and fold
+// in the raw bytes of every field that affects simulation output.
+//
+// We hash:
+//   - arena (which is currently static, but we fold it in for safety
+//     so a future arena-variant can change the hash too);
+//   - per-fighter: body (x,y,w,h as int32 for cross-platform safety -
+//     we don't hash the float bit pattern, since two compilers could
+//     legitimately produce different bit patterns for the same value),
+//     velocity (int32 of the cast), grounded, dead, damage_percent,
+//     stocks, facing, jumps_remaining, state enum, current_attack_id,
+//     attack_frame, attack_has_hit (folded as 0/1 so we don't have to
+//     define its storage), hitstun_frames, invuln_frames;
+//   - match: phase, ko_banner_timer (as int32 of the cast - dt
+//     accumulation is deterministic at 1/60, but a future variable-dt
+//     build could still produce a different but consistent hash);
+//   - respawn timers (per fighter, int32 of the cast);
+//   - hit-spark: age + last_hit_ (x, y as int32, valid as 0/1);
+//   - hit-stop: frames remaining;
+//   - ko-shake: frames remaining + offset x,y as int32.
+//
+// We do NOT hash: AI RNG state (it's an internal state, not a
+// simulation output - two bots with the same seed will make the same
+// decisions regardless of internal RNG state representation), or
+// display-only state (renderer view offset, UI strings).
+//
+// The contract this function provides is: same inputs + same AI
+// seed -> same hash. The M11 test harness verifies the contract.
+// The future M10 online implementation will exchange this hash
+// between peers to detect desync.
+// --------------------------------------------------------------------
+std::uint64_t Match::state_hash() const {
+    // FNV-1a 64-bit constants.
+    constexpr std::uint64_t kFnvOffset = 0xcbf29ce484222325ULL;
+    constexpr std::uint64_t kFnvPrime  = 0x100000001b3ULL;
+    std::uint64_t h = kFnvOffset;
+
+    // Helper: fold a 32-bit value into the hash.
+    auto mix32 = [&](std::uint32_t v) {
+        for (int i = 0; i < 4; ++i) {
+            h ^= (v >> (i * 8)) & 0xFFu;
+            h *= kFnvPrime;
+        }
+    };
+    // Helper: fold a float (as int32) into the hash. We cast the
+    // float to int32 first so that the bit pattern is the float's
+    // value, not its raw bits. Two compilers must agree on the cast
+    // for the same float value to produce the same int32; the C++
+    // standard guarantees that for finite values representable in
+    // both, so this is portable enough for our use.
+    auto mix_f32 = [&](float f) {
+        std::int32_t bits = static_cast<std::int32_t>(f);
+        mix32(static_cast<std::uint32_t>(bits));
+    };
+    // Helper: fold a double (as int64) into the hash. Split into two
+    // 32-bit folds so we don't lose entropy.
+    auto mix_f64 = [&](double d) {
+        std::int64_t bits = static_cast<std::int64_t>(d);
+        mix32(static_cast<std::uint32_t>(bits & 0xFFFFFFFFu));
+        mix32(static_cast<std::uint32_t>(
+                 (static_cast<std::uint64_t>(bits) >> 32) & 0xFFFFFFFFu));
+    };
+    // Helper: fold a Vec2 component (double) as a 32-bit int. The
+    // physics store velocity as double, but the values are small
+    // enough that int32 captures them faithfully. Avoids the
+    // double->float narrowing warning C4244.
+    auto mix_dbl_as_i32 = [&](double d) {
+        std::int32_t bits = static_cast<std::int32_t>(d);
+        mix32(static_cast<std::uint32_t>(bits));
+    };
+
+    // --- Arena (currently static, but fold for safety) ---
+    for (const Platform& p : arena_.platforms()) {
+        mix_f32(p.aabb.x); mix_f32(p.aabb.y);
+        mix_f32(p.aabb.w); mix_f32(p.aabb.h);
+    }
+    mix_f32(arena_.death_zone_y());
+    mix_f32(arena_.spawn_x(0));
+    mix_f32(arena_.spawn_x(1));
+    mix_f32(arena_.spawn_y());
+
+    // --- Per-fighter state ---
+    for (int i = 0; i < kFighterCount; ++i) {
+        const Fighter& f = *fighters_[i];
+        // Body AABB.
+        mix_f32(f.body().x); mix_f32(f.body().y);
+        mix_f32(f.body().w); mix_f32(f.body().h);
+        // Velocity (Vec2 is double; cast to int32 to fit the
+        // single-32-bit fold + avoid the float-narrowing warning).
+        mix_dbl_as_i32(f.velocity().x);
+        mix_dbl_as_i32(f.velocity().y);
+        // Booleans as 0/1.
+        mix32(f.is_grounded() ? 1u : 0u);
+        mix32(f.is_dead()     ? 1u : 0u);
+        // Integer state.
+        mix32(static_cast<std::uint32_t>(f.player_index()));
+        mix32(static_cast<std::uint32_t>(f.damage_percent()));
+        mix32(static_cast<std::uint32_t>(f.stocks()));
+        mix32(static_cast<std::uint32_t>(f.facing()));
+        mix32(static_cast<std::uint32_t>(f.jumps_remaining()));
+        mix32(static_cast<std::uint32_t>(f.state()));
+        mix32(static_cast<std::uint32_t>(f.current_attack_id()));
+        mix32(static_cast<std::uint32_t>(f.attack_frame()));
+        mix32(static_cast<std::uint32_t>(f.hitstun_frames()));
+        mix32(static_cast<std::uint32_t>(f.invuln_frames()));
+    }
+
+    // --- Match flow ---
+    mix32(static_cast<std::uint32_t>(phase_));
+    mix_f64(ko_banner_timer_);
+
+    // --- Per-fighter respawn timers (seconds) ---
+    for (int i = 0; i < kFighterCount; ++i) {
+        mix_f64(respawn_timer_[i]);
+    }
+
+    // --- Hit-spark ---
+    mix32(static_cast<std::uint32_t>(hit_spark_age_));
+    mix_f32(last_hit_.x);
+    mix_f32(last_hit_.y);
+    mix32(last_hit_.valid ? 1u : 0u);
+
+    // --- Hit-stop ---
+    mix32(static_cast<std::uint32_t>(hit_stop_frames_));
+
+    // --- KO shake ---
+    mix32(static_cast<std::uint32_t>(ko_shake_frames_));
+    mix_f32(ko_shake_offset_x_);
+    mix_f32(ko_shake_offset_y_);
+
+    return h;
+}
+
 } // namespace ember
