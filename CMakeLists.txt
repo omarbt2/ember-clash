@@ -66,6 +66,7 @@ set(EMBER_SOURCES
     # are NOT in this list; the if(EMSCRIPTEN) block below picks exactly one.
     src/Core/App.cpp
     src/Core/Logger.cpp
+    src/Core/Settings.cpp
     src/Core/Time.cpp
 
     src/Gameplay/Attack.cpp
@@ -76,15 +77,19 @@ set(EMBER_SOURCES
     src/Gameplay/InputMap.cpp
     src/Gameplay/Match.cpp
 
+    src/Audio/Audio.cpp
+
     src/Graphics/Renderer.cpp
     src/Graphics/Window.cpp
 
+    src/Input/Gamepad.cpp
     src/Input/InputManager.cpp
 
     src/Physics/Motion.cpp
 
     src/UI/BitmapFont.cpp
     src/UI/Hud.cpp
+    src/UI/Menu.cpp
 
     src/World/Arena.cpp
 )

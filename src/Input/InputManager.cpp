@@ -90,4 +90,40 @@ bool InputManager::any_held() const {
     return any_current_;
 }
 
+// -----------------------------------------------------------------
+// Menu nav predicates. We compute the OR over the keyboard edge
+// transitions; the gamepad equivalent lives in Gamepad.h and is
+// merged in App by ORing the two sources. The reason this is split
+// (keyboard here, gamepad in App) is that the keyboard layer is
+// the one that owns the SDL event queue + the test seam; the
+// gamepad layer owns its own state. Both surfaces are merged
+// in App::update_menu() into the menu's single "any input"
+// predicate.
+// -----------------------------------------------------------------
+bool InputManager::menu_up    () const {
+    return pressed(SDLK_W) || pressed(SDLK_UP);
+}
+bool InputManager::menu_down  () const {
+    return pressed(SDLK_S) || pressed(SDLK_DOWN);
+}
+bool InputManager::menu_left  () const {
+    return pressed(SDLK_A) || pressed(SDLK_LEFT);
+}
+bool InputManager::menu_right () const {
+    return pressed(SDLK_D) || pressed(SDLK_RIGHT);
+}
+bool InputManager::menu_confirm() const {
+    return pressed(SDLK_RETURN) || pressed(SDLK_SPACE);
+}
+bool InputManager::menu_cancel () const {
+    return pressed(SDLK_ESCAPE);
+}
+bool InputManager::menu_pause  () const {
+    return pressed(SDLK_P);
+}
+bool InputManager::menu_any_pressed() const {
+    return menu_up() || menu_down() || menu_left() || menu_right()
+        || menu_confirm() || menu_cancel() || menu_pause();
+}
+
 } // namespace ember

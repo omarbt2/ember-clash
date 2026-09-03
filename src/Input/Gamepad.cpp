@@ -1,0 +1,145 @@
+#include "Input/Gamepad.h"
+
+#include "Core/Logger.h"
+
+#include <SDL3/SDL.h>
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_gamepad.h>
+
+#include <algorithm>
+#include <cstring>
+#include <string>
+
+namespace ember {
+
+Gamepad::Gamepad() {
+    // Initialise the gamepad subsystem. Safe to call multiple times
+    // (SDL_InitSubSystem is reference-counted).
+    if (!SDL_InitSubSystem(SDL_INIT_GAMEPAD)) {
+        Logger::warn(std::string{"Gamepad: SDL_InitSubSystem failed: "}
+                     + SDL_GetError());
+    }
+}
+
+Gamepad::~Gamepad() {
+    close();
+    SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
+}
+
+void Gamepad::open_at_index(int index) {
+    if (gamepad_) close();
+    SDL_Gamepad* pad = SDL_OpenGamepad(index);
+    if (!pad) {
+        Logger::warn(std::string{"Gamepad: SDL_OpenGamepad("} 
+                     + std::to_string(index) + ") failed: " + SDL_GetError());
+        return;
+    }
+    gamepad_    = pad;
+    instance_id_ = SDL_GetGamepadID(pad);
+    const char* n = SDL_GetGamepadName(pad);
+    if (n) {
+        const size_t len = std::min<std::size_t>(std::strlen(n), sizeof(name_) - 1);
+        std::memcpy(name_, n, len);
+        name_[len] = '\0';
+    } else {
+        name_[0] = '\0';
+    }
+    Logger::info(std::string{"Gamepad attached: "} + name_);
+}
+
+void Gamepad::close() {
+    if (gamepad_) {
+        Logger::info(std::string{"Gamepad detached: "} + name_);
+        SDL_CloseGamepad(gamepad_);
+        gamepad_ = nullptr;
+        instance_id_ = 0;
+        name_[0] = '\0';
+        std::memset(current_,  0, sizeof(current_));
+        std::memset(previous_, 0, sizeof(previous_));
+        axis_lx_ = 0;
+        axis_ly_ = 0;
+    }
+}
+
+void Gamepad::update() {
+    // Shift current -> previous before we read new state, so the
+    // "pressed" / "released" predicates see a one-frame window.
+    std::memcpy(previous_, current_, sizeof(previous_));
+    std::memset(current_,  0, sizeof(current_));
+    axis_lx_ = 0;
+    axis_ly_ = 0;
+
+    // We do NOT call SDL_PollEvent here - the keyboard InputManager
+    // owns the event queue. We DO process events as they arrive via
+    // the App's event poll loop, but for simplicity (and because the
+    // gamepad only has a handful of inputs) we re-poll button / axis
+    // state directly from the gamepad handle each frame. Hot-plug
+    // events are handled by listening for SDL events below.
+    SDL_Event event;
+    while (SDL_PollEvent(&event)) {
+        switch (event.type) {
+            case SDL_EVENT_GAMEPAD_ADDED: {
+                if (!gamepad_) {
+                    open_at_index(event.gdevice.which);
+                }
+                break;
+            }
+            case SDL_EVENT_GAMEPAD_REMOVED: {
+                if (gamepad_ && event.gdevice.which == instance_id_) {
+                    close();
+                }
+                break;
+            }
+            default:
+                // Not a gamepad event; ignore.
+                break;
+        }
+    }
+
+    if (!gamepad_) return;
+
+    for (int i = 0; i < kMaxButtons; ++i) {
+        const auto btn = static_cast<SDL_GamepadButton>(i);
+        current_[i] = SDL_GetGamepadButton(gamepad_, btn);
+    }
+    axis_lx_ = SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTX);
+    axis_ly_ = SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTY);
+}
+
+bool Gamepad::held(SDL_GamepadButton b) const {
+    const int i = static_cast<int>(b);
+    if (i < 0 || i >= kMaxButtons) return false;
+    return current_[i];
+}
+bool Gamepad::pressed(SDL_GamepadButton b) const {
+    const int i = static_cast<int>(b);
+    if (i < 0 || i >= kMaxButtons) return false;
+    return current_[i] && !previous_[i];
+}
+bool Gamepad::released(SDL_GamepadButton b) const {
+    const int i = static_cast<int>(b);
+    if (i < 0 || i >= kMaxButtons) return false;
+    return !current_[i] && previous_[i];
+}
+
+float Gamepad::left_stick_x() const {
+    constexpr float kMax = 32767.0f;
+    if (axis_lx_ >  kAxisDeadzone) return  (axis_lx_ - kAxisDeadzone) / (kMax - kAxisDeadzone);
+    if (axis_lx_ < -kAxisDeadzone) return  (axis_lx_ + kAxisDeadzone) / (kMax - kAxisDeadzone);
+    return 0.0f;
+}
+float Gamepad::left_stick_y() const {
+    constexpr float kMax = 32767.0f;
+    if (axis_ly_ >  kAxisDeadzone) return  (axis_ly_ - kAxisDeadzone) / (kMax - kAxisDeadzone);
+    if (axis_ly_ < -kAxisDeadzone) return  (axis_ly_ + kAxisDeadzone) / (kMax - kAxisDeadzone);
+    return 0.0f;
+}
+
+bool Gamepad::nav_left  () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_LEFT]  || left_stick_x() < -0.5f; }
+bool Gamepad::nav_right () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] || left_stick_x() >  0.5f; }
+bool Gamepad::nav_up    () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_UP]    || left_stick_y() < -0.5f; }
+bool Gamepad::nav_down  () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_DOWN]  || left_stick_y() >  0.5f; }
+bool Gamepad::confirm   () const { return pressed(SDL_GAMEPAD_BUTTON_SOUTH) || pressed(SDL_GAMEPAD_BUTTON_START); }
+bool Gamepad::cancel    () const { return pressed(SDL_GAMEPAD_BUTTON_EAST)  || pressed(SDL_GAMEPAD_BUTTON_BACK); }
+
+} // namespace ember

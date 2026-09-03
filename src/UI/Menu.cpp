@@ -1,0 +1,673 @@
+#include "UI/Menu.h"
+
+#include "Audio/Audio.h"
+#include "Core/Config.h"
+#include "Core/Logger.h"
+#include "Input/Gamepad.h"
+#include "Input/InputManager.h"
+#include "UI/BitmapFont.h"
+
+#include <algorithm>
+#include <cstring>
+#include <string>
+
+namespace ember {
+
+namespace {
+
+// Render-space geometry for the menu UI. The logical render is
+// 1280x720 (see Config.h). Menu elements snap to the centre line
+// and to fixed margins so the layout works on every aspect ratio
+// the window can be resized to.
+constexpr int kScreenW = 1280;
+constexpr int kScreenH = 720;
+
+constexpr int kTitleY        = 200;
+constexpr int kMenuTopY      = 320;
+constexpr int kMenuLineDy    = 48;
+constexpr int kMenuLeftX     = 380;
+constexpr int kHintY         = 640;
+constexpr int kQuitConfirmY  = 360;
+constexpr int kSettingLeftX  = 240;
+constexpr int kSettingValX   = 920;
+
+constexpr config::Color kFocusColor  { 250, 220,  80, 255 };
+constexpr config::Color kTitleColor  { 240, 200,  80, 255 };
+constexpr config::Color kHintColor   { 180, 180, 200, 255 };
+constexpr config::Color kBgColor     {  18,  22,  32, 200 };  // translucent overlay
+constexpr config::Color kPanelColor  {  40,  44,  60, 220 };
+
+// Format an integer percentage (0-100) into a right-aligned string.
+std::string fmt_pct(int v) {
+    if (v < 0) v = 0;
+    if (v > 100) v = 100;
+    return std::to_string(v);
+}
+
+// Format a bool as "ON" / "OFF".
+std::string fmt_onoff(bool v) { return v ? "ON" : "OFF"; }
+
+// Center a string of N characters horizontally on a row at y. The
+// bitmap font is 5 cells per glyph and a 4-wide glyph, so the
+// visible width is N * 5 - 1 cells. (see measure_text)
+void draw_text_centered(Renderer& r, int y, const std::string& s,
+                        config::Color color) {
+    const int w = ui::measure_text(s.c_str());
+    const int x = (kScreenW - w) / 2;
+    ui::draw_text(r, x, y, s.c_str(), color);
+}
+
+// Draw a left-aligned entry at row y and (optionally) a right-
+// aligned value at x_value. The label uses the focus color when
+// this is the selected row, otherwise the standard HUD text color.
+void draw_entry(Renderer& r, int y, const Menu::Entry& e, bool focused,
+                int value_x) {
+    const config::Color label_col = focused ? kFocusColor
+                                            : config::kHudTextColor;
+    ui::draw_text(r, kMenuLeftX, y, e.label.c_str(), label_col);
+    if (!e.value.empty()) {
+        const int w = ui::measure_text(e.value.c_str());
+        ui::draw_text(r, value_x - w, y, e.value.c_str(), label_col);
+    }
+    // Selection cursor: a small filled square to the left of the
+    // label. Avoids relying on a font glyph (the ">" character
+    // would be hard to spot at this size).
+    if (focused) {
+        r.draw_filled_rect({static_cast<float>(kMenuLeftX - 24),
+                            static_cast<float>(y + 6), 8.0f, 8.0f},
+                           kFocusColor);
+    }
+}
+
+// One-time construction of the static entry lists. Called from
+// the Menu constructor.
+Menu::Entry mk(const char* l, Menu::Action a) {
+    Menu::Entry e;
+    e.label = l;
+    e.value.clear();
+    e.on_confirm = a;
+    return e;
+}
+Menu::Entry mkv(const char* l, const char* v, Menu::Action a) {
+    Menu::Entry e;
+    e.label = l;
+    e.value = v;
+    e.on_confirm = a;
+    return e;
+}
+
+} // namespace
+
+Menu::Menu() {
+    main_entries_ = {
+        mk ("PLAY",        Action::kStartMatch),
+        mk ("SETTINGS",    Action::kSaveSettings),  // "open" via state machine, not action
+        mk ("CONTROLS",    Action::kSaveSettings),  // ditto
+        mk ("QUIT",        Action::kRequestQuit),
+    };
+    // We can't pass kOpenSettings / kOpenControls as Actions
+    // because the Action enum is the OUT-pipe from the menu. The
+    // trick: the menu's update() recognises the selected entry
+    // and switches state directly when confirm fires on these
+    // rows. See navigate() for the dispatch.
+
+    paused_entries_ = {
+        mk ("RESUME",       Action::kResumeMatch),
+        mk ("SETTINGS",     Action::kSaveSettings),
+        mk ("CONTROLS",     Action::kSaveSettings),
+        mk ("RESTART",      Action::kRestartMatch),
+        mk ("QUIT TO TITLE",Action::kReturnToTitle),
+    };
+
+    rematch_entries_ = {
+        mk ("REMATCH",      Action::kRestartMatch),
+        mk ("BACK TO TITLE",Action::kReturnToTitle),
+    };
+
+    controls_entries_ = {
+        mkv("P1 MOVE LEFT",       "A / LEFT",   Action::kNone),
+        mkv("P1 MOVE RIGHT",      "D / RIGHT",  Action::kNone),
+        mkv("P1 JUMP",            "W / SPACE",  Action::kNone),
+        mkv("P1 FAST FALL",       "S",          Action::kNone),
+        mkv("P1 JAB",             "J",          Action::kNone),
+        mkv("P1 FORWARD TILT",    "K",          Action::kNone),
+        mkv("P1 NEUTRAL AIR",     "L",          Action::kNone),
+        mkv("P2 MOVE LEFT",       "ARROW LEFT", Action::kNone),
+        mkv("P2 MOVE RIGHT",      "ARROW RIGHT",Action::kNone),
+        mkv("P2 JUMP",            "ARROW UP",   Action::kNone),
+        mkv("P2 FAST FALL",       "ARROW DOWN", Action::kNone),
+        mkv("P2 JAB",             "NUMPAD 1",   Action::kNone),
+        mkv("P2 FORWARD TILT",    "NUMPAD 2",   Action::kNone),
+        mkv("P2 NEUTRAL AIR",     "NUMPAD 3",   Action::kNone),
+        mkv("PAUSE",              "P / GAMEPAD START", Action::kNone),
+        mkv("CONFIRM (MENU)",     "ENTER / GAMEPAD A", Action::kNone),
+        mkv("CANCEL (MENU)",      "ESC / GAMEPAD B",   Action::kNone),
+        mkv("BACK TO TITLE",      "BACK (MENU)",  Action::kReturnToTitle),
+    };
+
+    rebuild_settings_entries();
+}
+
+void Menu::rebuild_settings_entries() {
+    settings_entries_.clear();
+    if (settings_) {
+        settings_entries_.push_back(mkv("MASTER VOLUME",
+            (fmt_pct(settings_->master_volume) + "%").c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("MASTER MUTE",
+            fmt_onoff(settings_->master_mute).c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("SFX VOLUME",
+            (fmt_pct(settings_->sfx_volume) + "%").c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("SFX MUTE",
+            fmt_onoff(settings_->sfx_mute).c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("MUSIC VOLUME",
+            (fmt_pct(settings_->music_volume) + "%").c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("MUSIC MUTE",
+            fmt_onoff(settings_->music_mute).c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("FULLSCREEN",
+            fmt_onoff(settings_->fullscreen).c_str(),
+            Action::kToggleFullscreen));
+        settings_entries_.push_back(mkv("SCREEN SHAKE",
+            fmt_onoff(settings_->screen_shake).c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("COLOR BLIND",
+            fmt_onoff(settings_->color_blind_palette).c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mkv("AI DIFFICULTY",
+            std::string(settings_->ai_difficulty.data()).c_str(),
+            Action::kNone));
+        settings_entries_.push_back(mk ("RESTORE DEFAULTS",
+            Action::kRestoreDefaultSettings));
+        settings_entries_.push_back(mk ("BACK",
+            Action::kNone));
+    } else {
+        settings_entries_.push_back(mk("(no settings bound)", Action::kNone));
+    }
+}
+
+const std::vector<Menu::Entry>& Menu::entries_for_state(State s) const {
+    switch (s) {
+        case State::kMain:        return main_entries_;
+        case State::kPaused:      return paused_entries_;
+        case State::kRematch:     return rematch_entries_;
+        case State::kSettings:    return settings_entries_;
+        case State::kControls:    return controls_entries_;
+        case State::kTitle:       return main_entries_;  // unused; title is bespoke
+        case State::kPlay:        return main_entries_;  // unused; dormant
+        case State::kQuitConfirm: return main_entries_;  // unused; bespoke
+    }
+    return main_entries_;
+}
+
+void Menu::push_event(Event ev) {
+    handle_event(ev);
+}
+
+bool Menu::handle_event(Event ev) {
+    switch (ev) {
+        case Event::kMatchStarted:
+            state_ = State::kPlay;
+            selected_index_ = 0;
+            return true;
+        case Event::kMatchEnded:
+            state_ = State::kRematch;
+            selected_index_ = 0;
+            return true;
+        case Event::kMatchPaused:
+            if (state_ == State::kPlay) {
+                state_ = State::kPaused;
+                selected_index_ = 0;
+            }
+            return true;
+        case Event::kMatchResumed:
+            if (state_ == State::kPaused) {
+                state_ = State::kPlay;
+                selected_index_ = 0;
+            }
+            return true;
+    }
+    return false;
+}
+
+Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
+                            Audio& audio) {
+    auto& entries = entries_for_state(state_);
+    if (entries.empty()) return Action::kNone;
+
+    // Up / down cycle through the entry list. The "menu up" /
+    // "menu down" predicates from InputManager are already edge-
+    // triggered, so a single press advances one row.
+    const bool up   = input.menu_up()    || pad.nav_up();
+    const bool down = input.menu_down()  || pad.nav_down();
+    if (up) {
+        selected_index_ = (selected_index_ - 1 + static_cast<int>(entries.size()))
+                          % static_cast<int>(entries.size());
+        audio.play(SfxId::MenuMove);
+    }
+    if (down) {
+        selected_index_ = (selected_index_ + 1) % static_cast<int>(entries.size());
+        audio.play(SfxId::MenuMove);
+    }
+
+    // Cancel = back / leave the current sub-screen.
+    if (input.menu_cancel() || pad.cancel()) {
+        if (state_ == State::kSettings || state_ == State::kControls) {
+            // Save settings on the way out of the settings screen.
+            if (state_ == State::kSettings) {
+                pending_action_ = Action::kSaveSettings;
+            }
+            state_ = (state_ == State::kSettings) ? State::kMain : State::kMain;
+            selected_index_ = (state_ == State::kSettings) ? 1 : 2;
+            audio.play(SfxId::MenuCancel);
+            return Action::kNone;
+        }
+        if (state_ == State::kPaused) {
+            // Cancel from pause = unpause (standard "back" in pause
+            // menus).
+            audio.play(SfxId::MenuBack);
+            handle_event(Event::kMatchResumed);
+            return Action::kResumeMatch;
+        }
+        if (state_ == State::kQuitConfirm) {
+            state_ = (state_ == State::kQuitConfirm) ? State::kTitle : State::kTitle;
+            audio.play(SfxId::MenuCancel);
+            return Action::kNone;
+        }
+    }
+
+    // Confirm = execute the focused entry.
+    if (input.menu_confirm() || pad.confirm()) {
+        // The settings screen has its own dispatch (because its
+        // entries edit values in place rather than emitting
+        // actions). Other states branch on selected_index_
+        // directly below; we intentionally do NOT read entries
+        // here because the Entry's on_confirm Action is only
+        // used by the bookkeeping calls in those branches.
+        (void)entries;
+        // Settings screen: the right-hand value column is editable
+        // with left/right; confirm just toggles bool-style fields
+        // and cycles the AI difficulty. The +/- style volume edit
+        // happens via left/right (see below).
+        if (state_ == State::kSettings && settings_) {
+            switch (selected_index_) {
+                case 0: settings_->master_volume = (settings_->master_volume + 10) % 110; if (settings_->master_volume > 100) settings_->master_volume = 0; break;
+                case 1: settings_->master_mute = !settings_->master_mute; break;
+                case 2: settings_->sfx_volume    = (settings_->sfx_volume    + 10) % 110; if (settings_->sfx_volume    > 100) settings_->sfx_volume    = 0; break;
+                case 3: settings_->sfx_mute = !settings_->sfx_mute; break;
+                case 4: settings_->music_volume  = (settings_->music_volume  + 10) % 110; if (settings_->music_volume  > 100) settings_->music_volume  = 0; break;
+                case 5: settings_->music_mute = !settings_->music_mute; break;
+                case 6: settings_->fullscreen = !settings_->fullscreen; break;
+                case 7: settings_->screen_shake = !settings_->screen_shake; break;
+                case 8: settings_->color_blind_palette = !settings_->color_blind_palette; break;
+                case 9: {
+                    // Cycle AI difficulty: easy -> standard -> hard -> easy.
+                    const std::string cur = std::string(settings_->ai_difficulty.data());
+                    std::string next;
+                    if (cur == "easy")      next = "standard";
+                    else if (cur == "hard") next = "easy";
+                    else                    next = "hard";
+                    std::memset(settings_->ai_difficulty.data(), 0,
+                                settings_->ai_difficulty.size());
+                    std::memcpy(settings_->ai_difficulty.data(), next.data(),
+                                std::min<std::size_t>(next.size(),
+                                                      settings_->ai_difficulty.size() - 1));
+                    break;
+                }
+                case 10: settings_->reset_to_defaults(); break;
+                case 11: {
+                    // BACK row
+                    pending_action_ = Action::kSaveSettings;
+                    state_ = State::kMain;
+                    selected_index_ = 1;
+                    audio.play(SfxId::MenuBack);
+                    return Action::kNone;
+                }
+            }
+            if (selected_index_ < 10) {
+                audio.play(SfxId::MenuConfirm);
+            }
+            rebuild_settings_entries();
+            return Action::kNone;
+        }
+
+        // Non-settings states: the entry's on_confirm Action
+        // tells us what to do. A few entries (SETTINGS, CONTROLS,
+        // QUIT) need a state transition, not an action - we
+        // handle those explicitly.
+        if (state_ == State::kMain) {
+            switch (selected_index_) {
+                case 0: // PLAY
+                    audio.play(SfxId::MenuConfirm);
+                    state_ = State::kPlay;
+                    return Action::kStartMatch;
+                case 1: // SETTINGS
+                    audio.play(SfxId::MenuConfirm);
+                    state_ = State::kSettings;
+                    selected_index_ = 0;
+                    return Action::kNone;
+                case 2: // CONTROLS
+                    audio.play(SfxId::MenuConfirm);
+                    state_ = State::kControls;
+                    selected_index_ = 0;
+                    return Action::kNone;
+                case 3: // QUIT
+                    audio.play(SfxId::MenuConfirm);
+                    state_ = State::kQuitConfirm;
+                    selected_index_ = 0;
+                    return Action::kNone;
+            }
+        }
+        if (state_ == State::kPaused) {
+            switch (selected_index_) {
+                case 0: // RESUME
+                    audio.play(SfxId::MenuConfirm);
+                    handle_event(Event::kMatchResumed);
+                    return Action::kResumeMatch;
+                case 1: // SETTINGS
+                    audio.play(SfxId::MenuConfirm);
+                    state_ = State::kSettings;
+                    selected_index_ = 0;
+                    return Action::kNone;
+                case 2: // CONTROLS
+                    audio.play(SfxId::MenuConfirm);
+                    state_ = State::kControls;
+                    selected_index_ = 0;
+                    return Action::kNone;
+                case 3: // RESTART
+                    audio.play(SfxId::MenuConfirm);
+                    handle_event(Event::kMatchResumed);
+                    return Action::kRestartMatch;
+                case 4: // QUIT TO TITLE
+                    audio.play(SfxId::MenuConfirm);
+                    return Action::kReturnToTitle;
+            }
+        }
+        if (state_ == State::kRematch) {
+            switch (selected_index_) {
+                case 0: // REMATCH
+                    audio.play(SfxId::MenuConfirm);
+                    return Action::kRestartMatch;
+                case 1: // BACK TO TITLE
+                    audio.play(SfxId::MenuConfirm);
+                    return Action::kReturnToTitle;
+            }
+        }
+        if (state_ == State::kQuitConfirm) {
+            switch (selected_index_) {
+                case 0: // YES
+                    audio.play(SfxId::MenuConfirm);
+                    return Action::kRequestQuit;
+                case 1: // NO
+                    audio.play(SfxId::MenuCancel);
+                    state_ = State::kTitle;
+                    return Action::kNone;
+            }
+        }
+        if (state_ == State::kControls) {
+            // The "BACK TO TITLE" row is the last entry.
+            if (selected_index_ == static_cast<int>(entries.size()) - 1) {
+                audio.play(SfxId::MenuBack);
+                state_ = State::kMain;
+                selected_index_ = 2;
+                return Action::kNone;
+            }
+        }
+    }
+
+    // Left/right also works for +/- on volume entries. Treat the
+    // current selection as the edit target; left decreases, right
+    // increases. Mute / fullscreen / AI difficulty are handled by
+    // confirm only - left/right on those rows is a no-op.
+    if (state_ == State::kSettings && settings_) {
+        const bool left  = input.menu_left()  || pad.nav_left();
+        const bool right = input.menu_right() || pad.nav_right();
+        if (left || right) {
+            const int delta = right ? +10 : -10;
+            switch (selected_index_) {
+                case 0: {
+                    int& v = settings_->master_volume;
+                    v = (v + delta + 110) % 110;
+                    if (v > 100) v = (delta > 0 ? 0 : 100);
+                } break;
+                case 2: {
+                    int& v = settings_->sfx_volume;
+                    v = (v + delta + 110) % 110;
+                    if (v > 100) v = (delta > 0 ? 0 : 100);
+                } break;
+                case 4: {
+                    int& v = settings_->music_volume;
+                    v = (v + delta + 110) % 110;
+                    if (v > 100) v = (delta > 0 ? 0 : 100);
+                } break;
+                default: break;
+            }
+            audio.play(SfxId::MenuMove);
+            rebuild_settings_entries();
+        }
+    }
+
+    return Action::kNone;
+}
+
+Menu::State Menu::update(const InputManager& input, const Gamepad& pad,
+                         Audio& audio) {
+    ++title_pulse_ticks_;
+
+    // The play state is dormant: input still flows to App (which
+    // pumps it into Match), the menu just doesn't react.
+    if (state_ == State::kPlay) {
+        return state_;
+    }
+
+    if (state_ == State::kTitle) {
+        // "Press any key to start" - any menu input advances to
+        // the main menu.
+        if (input.menu_any_pressed() || pad.confirm()) {
+            state_ = State::kMain;
+            selected_index_ = 0;
+            audio.play(SfxId::MenuConfirm);
+        }
+        return state_;
+    }
+
+    const Action a = navigate(input, pad, audio);
+    if (a != Action::kNone) {
+        pending_action_ = a;
+    }
+    return state_;
+}
+
+Menu::Action Menu::consume_action() {
+    const Action a = pending_action_;
+    pending_action_ = Action::kNone;
+    return a;
+}
+
+bool Menu::blocks_simulation() const {
+    return state_ != State::kPlay;
+}
+
+// ---- Rendering ----------------------------------------------------------------
+
+void Menu::render_title(Renderer& r) const {
+    // Background.
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kBgColor);
+    // Big title.
+    draw_text_centered(r, kTitleY, "EMBER CLASH", kTitleColor);
+
+    // Pulse the "press any key" hint. The pulse is a 30-tick
+    // triangle wave so the hint fades in and out smoothly.
+    const int period = 60;
+    const int phase  = title_pulse_ticks_ % period;
+    const int bright = (phase < period / 2) ? phase : (period - phase);
+    const config::Color hint_col {
+        static_cast<std::uint8_t>(120 + bright),
+        static_cast<std::uint8_t>(120 + bright),
+        static_cast<std::uint8_t>(140 + bright),
+        255 };
+    draw_text_centered(r, kHintY, "PRESS ANY KEY", hint_col);
+
+    // Subtitle. Shows keyboard + gamepad hints so the player
+    // knows both devices are supported. We do not need the
+    // gamepad name here (the controls screen has that).
+    draw_text_centered(r, kHintY + 28,
+                       "KEYBOARD OR GAMEPAD",
+                       kHintColor);
+}
+
+void Menu::render_main(Renderer& r) const {
+    // Translucent background panel.
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kBgColor);
+    draw_text_centered(r, kTitleY, "EMBER CLASH", kTitleColor);
+
+    const auto& entries = entries_for_state(state_);
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const int y = kMenuTopY + static_cast<int>(i) * kMenuLineDy;
+        draw_entry(r, y, entries[i],
+                   static_cast<int>(i) == selected_index_,
+                   kSettingValX);
+    }
+    draw_text_centered(r, kHintY, "UP/DOWN: SELECT   ENTER: CONFIRM   ESC: BACK",
+                       kHintColor);
+}
+
+void Menu::render_paused(Renderer& r) const {
+    // Draw the underlying match would be nice but we'd need the
+    // match to render itself; for V1.0 we just dim the whole
+    // screen with a darker panel. The match is still ticking
+    // behind the menu because Match::update is the call site
+    // owner (App stops calling it when the menu blocks sim).
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kPanelColor);
+    draw_text_centered(r, 200, "PAUSED", kTitleColor);
+
+    const auto& entries = entries_for_state(state_);
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const int y = kMenuTopY + static_cast<int>(i) * kMenuLineDy;
+        draw_entry(r, y, entries[i],
+                   static_cast<int>(i) == selected_index_,
+                   kSettingValX);
+    }
+    draw_text_centered(r, kHintY, "ESC / GAMEPAD B: RESUME", kHintColor);
+}
+
+void Menu::render_rematch(Renderer& r) const {
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kPanelColor);
+    draw_text_centered(r, 200, "GAME!", kTitleColor);
+
+    const auto& entries = entries_for_state(state_);
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const int y = kMenuTopY + static_cast<int>(i) * kMenuLineDy;
+        draw_entry(r, y, entries[i],
+                   static_cast<int>(i) == selected_index_,
+                   kSettingValX);
+    }
+}
+
+void Menu::render_settings(Renderer& r) const {
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kBgColor);
+    draw_text_centered(r, 160, "SETTINGS", kTitleColor);
+
+    const auto& entries = settings_entries_;
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const int y = kMenuTopY + static_cast<int>(i) * kMenuLineDy;
+        draw_entry(r, y, entries[i],
+                   static_cast<int>(i) == selected_index_,
+                   kSettingValX);
+    }
+    draw_text_centered(r, kHintY, "LEFT/RIGHT: ADJUST   ENTER: TOGGLE/CYCLE   ESC: BACK",
+                       kHintColor);
+}
+
+void Menu::render_controls(Renderer& r) const {
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kBgColor);
+    draw_text_centered(r, 120, "CONTROLS", kTitleColor);
+
+    // Two columns side by side: P1 on the left, P2 on the right.
+    // Each column is half-width. We render labels only (values
+    // are baked into the label text).
+    const auto& entries = controls_entries_;
+    int y_p1 = 200;
+    int y_p2 = 200;
+    constexpr int kColP1X = 200;
+    constexpr int kColP2X = 760;
+    for (std::size_t i = 0; i < entries.size(); ++i) {
+        const Entry& e = entries[i];
+        const bool is_p1 = (e.label.compare(0, 2, "P1") == 0);
+        const bool is_p2 = (e.label.compare(0, 2, "P2") == 0);
+        const bool is_meta = !(is_p1 || is_p2);
+        int& y = is_p1 ? y_p1 : (is_p2 ? y_p2 : y_p1);
+        const int x = is_p1 ? kColP1X : (is_p2 ? kColP2X : kSettingLeftX);
+        const config::Color c = (static_cast<int>(i) == selected_index_)
+                                ? kFocusColor
+                                : config::kHudTextColor;
+        ui::draw_text(r, x, y, e.label.c_str(), c);
+        if (!e.value.empty()) {
+            ui::draw_text(r, x + 220, y, e.value.c_str(), c);
+        }
+        if (static_cast<int>(i) == selected_index_) {
+            r.draw_filled_rect({static_cast<float>(x - 24),
+                                static_cast<float>(y + 6), 8.0f, 8.0f},
+                               kFocusColor);
+        }
+        y += 28;
+        if (is_meta) {
+            y_p1 = y;
+            y_p2 = y;
+        }
+    }
+    draw_text_centered(r, kHintY, "ESC / GAMEPAD B: BACK", kHintColor);
+}
+
+void Menu::render_quit_confirm(Renderer& r) const {
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kBgColor);
+    draw_text_centered(r, kQuitConfirmY - 80, "QUIT GAME?", kTitleColor);
+
+    const char* yes = "YES";
+    const char* no  = "CANCEL";
+    const int w_yes = ui::measure_text(yes);
+    const int w_no  = ui::measure_text(no);
+    const int x_yes = kScreenW / 2 - 80;
+    const int x_no  = kScreenW / 2 + 20;
+
+    ui::draw_text(r, x_yes, kQuitConfirmY, yes,
+                  selected_index_ == 0 ? kFocusColor : config::kHudTextColor);
+    ui::draw_text(r, x_no,  kQuitConfirmY, no,
+                  selected_index_ == 1 ? kFocusColor : config::kHudTextColor);
+    if (selected_index_ == 0) {
+        r.draw_filled_rect({static_cast<float>(x_yes - 24),
+                            static_cast<float>(kQuitConfirmY + 6), 8.0f, 8.0f},
+                           kFocusColor);
+    } else {
+        r.draw_filled_rect({static_cast<float>(x_no - 24),
+                            static_cast<float>(kQuitConfirmY + 6), 8.0f, 8.0f},
+                           kFocusColor);
+    }
+    draw_text_centered(r, kHintY, "LEFT/RIGHT: CHOOSE   ENTER: CONFIRM", kHintColor);
+}
+
+void Menu::render(Renderer& r) const {
+    switch (state_) {
+        case State::kTitle:        render_title(r);       break;
+        case State::kMain:         render_main(r);        break;
+        case State::kPaused:       render_paused(r);      break;
+        case State::kRematch:      render_rematch(r);     break;
+        case State::kSettings:     render_settings(r);    break;
+        case State::kControls:     render_controls(r);    break;
+        case State::kQuitConfirm:  render_quit_confirm(r);break;
+        case State::kPlay:         /* nothing; Match renders */ break;
+    }
+}
+
+} // namespace ember

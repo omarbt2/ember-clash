@@ -37,6 +37,25 @@ public:
     bool any_held() const;
 
     // -----------------------------------------------------------------
+    // M12 menu-navigation predicates. These merge keyboard + gamepad
+    // into a single "menu input" surface so the menu code does not
+    // need to know which device the player is using. The keys are
+    // WASD + arrow keys + Enter + Esc; the gamepad equivalents are
+    // d-pad + left stick + A/B/Start/Back. Edge-triggered (pressed
+    // = true only on the transition from up to down).
+    // -----------------------------------------------------------------
+    bool menu_up    () const;
+    bool menu_down  () const;
+    bool menu_left  () const;
+    bool menu_right () const;
+    bool menu_confirm() const;   // Enter or gamepad A/Start
+    bool menu_cancel () const;   // Esc   or gamepad B/Back
+    bool menu_pause  () const;   // P    or gamepad Start (rising edge)
+    // True on the frame ANY menu input fires (edge). Used by the
+    // "press any key" prompt.
+    bool menu_any_pressed() const;
+
+    // -----------------------------------------------------------------
     // M6-C test seam: drive the InputMap end-to-end from a headless
     // harness without bringing up an SDL window. Follows the same
     // pattern as Fighter::set_*_for_test, AiController::reset_for_test,

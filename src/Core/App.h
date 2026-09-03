@@ -1,12 +1,17 @@
 #pragma once
 
+#include "Core/Settings.h"
+
 #include <memory>
 
 namespace ember {
 
+class Audio;
 class Clock;
+class Gamepad;
 class InputManager;
 class Match;
+class Menu;
 class Renderer;
 class Window;
 
@@ -48,11 +53,36 @@ private:
     void update(double dt);
     void render();
 
+    // ---- M12 wiring -----------------------------------------------------
+    // handle_menu_action() runs the side effects implied by the
+    // current menu action (start a match, save settings, toggle
+    // fullscreen, etc.). App::update() calls this once per frame
+    // after the menu has been ticked.
+    void handle_menu_action();
+    // start_match_if_idle() / end_match_to_rematch() / pause_match()
+    // are the three App-side state transitions the menu can
+    // trigger. They push events into the menu and rebuild Match
+    // when a rematch is requested.
+    void start_match();
+    void end_match();
+    void pause_match();
+    void resume_match();
+    void reset_match();
+    void flush_settings();
+
     std::unique_ptr<Clock>        clock_;
     std::unique_ptr<InputManager> input_;
+    std::unique_ptr<Gamepad>      gamepad_;
+    std::unique_ptr<Audio>        audio_;
+    std::unique_ptr<Menu>         menu_;
     std::unique_ptr<Match>        match_;
     std::unique_ptr<Window>       window_;
     std::unique_ptr<Renderer>     renderer_;
+
+    Settings                      settings_{};
+    bool                          settings_dirty_{false};
+    double                        last_settings_flush_{0.0};
+
     bool                          sdl_initialized_{false};
     bool                          running_{false};
 };
