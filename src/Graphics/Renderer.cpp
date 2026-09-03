@@ -93,16 +93,32 @@ void Renderer::clear(config::Color color) {
     SDL_RenderClear(renderer_);
 }
 
+void Renderer::set_view_offset(float dx, float dy) {
+    view_offset_x_ = dx;
+    view_offset_y_ = dy;
+}
+
+namespace {
+// M6-C: apply the per-frame view offset to a logical rect before we hand
+// it to SDL. Subtracting the offset makes a positive offset "push the
+// camera in the negative direction" - the conventional feel for an
+// impact (the player is reading the scene, not the camera, and the
+// scene wobbling around the impact point is what reads as weight).
+SDL_FRect with_offset(const Renderer::Rect& r, float ox, float oy) {
+    return SDL_FRect{ r.x - ox, r.y - oy, r.w, r.h };
+}
+} // namespace
+
 void Renderer::draw_filled_rect(const Rect& rect, config::Color color) {
     if (!renderer_) return;
-    const SDL_FRect sdl_rect{ rect.x, rect.y, rect.w, rect.h };
+    const SDL_FRect sdl_rect = with_offset(rect, view_offset_x_, view_offset_y_);
     set_draw_color(renderer_, color);
     SDL_RenderFillRect(renderer_, &sdl_rect);
 }
 
 void Renderer::draw_rect_outline(const Rect& rect, config::Color color) {
     if (!renderer_) return;
-    const SDL_FRect sdl_rect{ rect.x, rect.y, rect.w, rect.h };
+    const SDL_FRect sdl_rect = with_offset(rect, view_offset_x_, view_offset_y_);
     set_draw_color(renderer_, color);
     SDL_RenderRect(renderer_, &sdl_rect);
 }
@@ -163,7 +179,7 @@ void Renderer::draw_sprite(const Sprite& sprite,
     }
 
     SDL_FRect dst_rect{
-        dst.x, dst.y,
+        dst.x - view_offset_x_, dst.y - view_offset_y_,
         static_cast<float>(Sprite::kSize * pixel_size),
         static_cast<float>(Sprite::kSize * pixel_size),
     };
@@ -202,8 +218,8 @@ void Renderer::draw_vertical_gradient(const Rect& rect,
             lerp(top.b, bottom.b),
             lerp(top.a, bottom.a),
         };
-        const SDL_FRect band{ rect.x,
-                              rect.y + step * static_cast<float>(i),
+        const SDL_FRect band{ rect.x - view_offset_x_,
+                              rect.y + step * static_cast<float>(i) - view_offset_y_,
                               rect.w,
                               step + 0.5f };
         set_draw_color(renderer_, c);

@@ -287,16 +287,11 @@ void Fighter::render(Renderer& renderer) const {
             config::kHudTextColor);
     }
 
-    // Active hitbox overlay (M3 debug aid; M6-C will replace with real
-    // VFX). Kept on top of the sprite so combat behavior remains visible.
-    if (state_ == State::Attacking) {
-        const Aabb hb = active_hitbox();
-        if (hb.w > 0.0f && hb.h > 0.0f) {
-            renderer.draw_rect_outline(
-                {hb.x, hb.y, hb.w, hb.h},
-                config::kCombatHitboxColor);
-        }
-    }
+    // M6-C: M3's active-hitbox debug outline is gone. The hit-spark
+    // (rendered by Match from last_hit_ / hit_spark_age_) communicates
+    // the same thing at the moment the player cares about it - a hit
+    // connecting. The hitbox AABB itself is still used by Match's hit
+    // resolver; this is a render-only cleanup.
 }
 
 } // namespace ember

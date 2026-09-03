@@ -62,6 +62,12 @@ public:
                                 config::Color top,
                                 config::Color bottom);
 
+    // M6-C: set a per-frame view offset (render pixels) that every
+    // subsequent draw call subtracts from its destination rect. Used by
+    // App to implement the post-KO screen shake. (0, 0) is the identity
+    // offset and is the default at construction.
+    void set_view_offset(float dx, float dy);
+
     // Presents the current back buffer.
     void present();
 
@@ -86,6 +92,10 @@ private:
     int           out_w_{0};
     int           out_h_{0};
     std::array<SpriteCacheSlot, kSpriteCacheSlots> sprite_cache_{};
+    // M6-C: per-frame view offset. Defaults to (0, 0) so callers that
+    // never touch it (e.g. the test harnesses) get the unmodified output.
+    float         view_offset_x_{0.0f};
+    float         view_offset_y_{0.0f};
 };
 
 } // namespace ember

@@ -12,6 +12,7 @@
 #include "UI/Hud.h"
 
 #include <cmath>
+#include <cstdlib>
 
 namespace ember {
 
@@ -65,6 +66,14 @@ Vec2 aabb_center(const Aabb& a) {
     return Vec2{ a.x + a.w * 0.5f, a.y + a.h * 0.5f };
 }
 
+// M6-C: deterministic shake offset. std::rand seeded in main()'s App
+// startup so the shake is the same across runs in a given build. Returns
+// a value in [-mag, +mag].
+float shake_offset_1d(float mag) {
+    const float r = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);  // [0, 1]
+    return (r * 2.0f - 1.0f) * mag;
+}
+
 } // namespace
 
 Match::Match()
@@ -111,11 +120,40 @@ const AiController* Match::ai(int fighter_index) const {
 }
 
 void Match::update(const InputManager& input, double dt) {
+    // M6-C: tick the post-KO shake at the TOP of update so the first
+    // frame after the match-end transition (which sets ko_shake_frames_
+    // to kKoShakeFrames) does not also decrement it. Without this, the
+    // first observable value is kKoShakeFrames-1, which is awkward for
+    // tests and inconsistent with how hit-stop's first observable value
+    // is kHitStopFrames (not decremented until the *next* update).
+    if (ko_shake_frames_ > 0) {
+        --ko_shake_frames_;
+        const float t = static_cast<float>(ko_shake_frames_)
+                      / static_cast<float>(combat::kKoShakeFrames);
+        const float mag = combat::kKoShakeMagnitude * t;
+        ko_shake_offset_x_ = shake_offset_1d(mag);
+        ko_shake_offset_y_ = shake_offset_1d(mag);
+    } else {
+        ko_shake_offset_x_ = 0.0f;
+        ko_shake_offset_y_ = 0.0f;
+    }
+
     // M5: when the match is over, freeze all fighter motion and just let
     // the KO banner timer tick. The rematch reset comes from App when the
     // player presses R.
     if (phase_ == Phase::MatchOver) {
         ko_banner_timer_ += dt;
+        if (hit_spark_age_ > 0) --hit_spark_age_;
+        return;
+    }
+
+    // M6-C: hit-stop. While a hit is "fresh" the match freezes - motion
+    // and AI are paused so the hit registers with weight, but the hit-
+    // spark still ages. We still want input sampled (the player may be
+    // buffering an input for the moment the freeze ends), so we update
+    // AI/motion ONLY when not in hit-stop.
+    if (hit_stop_frames_ > 0) {
+        --hit_stop_frames_;
         if (hit_spark_age_ > 0) --hit_spark_age_;
         return;
     }
@@ -180,6 +218,12 @@ void Match::update(const InputManager& input, double dt) {
                         true
                     };
                     hit_spark_age_ = combat::kHitSparkFrames;
+                    // M6-C: a successful hit pauses the simulation for a
+                    // few frames so the impact reads. The pause is set
+                    // here (not in apply_attack) because a hit on an
+                    // invulnerable or already-dead target does NOT
+                    // trigger the stop.
+                    hit_stop_frames_ = combat::kHitStopFrames;
                 }
             }
         }
@@ -212,9 +256,21 @@ void Match::update(const InputManager& input, double dt) {
     if (any_out) {
         phase_           = Phase::MatchOver;
         ko_banner_timer_ = 0.0;
+        // M6-C: arm the post-KO shake. The actual offset is set
+        // immediately to a fresh random value at full magnitude, then
+        // ticked at the top of subsequent updates. We initialize the
+        // offset here so the very first frame the renderer reads (this
+        // same frame, via App::render) shows a meaningful shake rather
+        // than the zero default.
+        ko_shake_frames_ = combat::kKoShakeFrames;
+        const float mag = combat::kKoShakeMagnitude;
+        ko_shake_offset_x_ = shake_offset_1d(mag);
+        ko_shake_offset_y_ = shake_offset_1d(mag);
     }
 
-    // 6) Hit-spark aging.
+    // 6) Hit-spark aging (the normal, non-frozen tick). The shake is
+    // ticked at the top of update so the post-KO frame doesn't both
+    // arm and decay it.
     if (hit_spark_age_ > 0) --hit_spark_age_;
 }
 
@@ -223,15 +279,12 @@ void Match::render(Renderer& renderer) const {
     for (int i = 0; i < kFighterCount; ++i) {
         fighters_[i]->render(renderer);
     }
-    // M3 hurtbox overlay. Helps verify hit detection is firing on the
-    // right frames; remove in M6.
-    for (int i = 0; i < kFighterCount; ++i) {
-        if (fighters_[i]->is_dead()) continue;
-        const Aabb& body = fighters_[i]->body();
-        renderer.draw_rect_outline(
-            {body.x, body.y, body.w, body.h},
-            config::kCombatHurtboxColor);
-    }
+    // M6-C: M3's hurtbox debug outline is gone - the hit-spark at the
+    // last_hit_ position now communicates the same info at the moment
+    // the player cares about it. The per-fighter hurtbox still lives in
+    // Fighter::body() and is used by Match's hit resolver, so this is a
+    // render-only cleanup.
+    //
     // M5 HUD: per-fighter damage-floats above their heads, then the
     // fighter cards in the top corners.
     for (int i = 0; i < kFighterCount; ++i) {

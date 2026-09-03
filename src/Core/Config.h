@@ -27,7 +27,10 @@ inline constexpr int kTargetFps = 60;
 inline constexpr double kMaxDeltaSeconds = 1.0 / 15.0;
 
 // -----------------------------------------------------------------------------
-// Placeholder palette (used by the M1 visual smoke-test)
+// Core palette. The placeholder shapes from M1 were promoted to the real
+// M6-A sprite generator (see Sprite.cpp) and the M6-B multi-frame palette
+// reads these constants. No more "M1 smoke-test" - all of these drive
+// shipped art.
 // -----------------------------------------------------------------------------
 struct Color {
     std::uint8_t r;
@@ -41,12 +44,6 @@ inline constexpr Color kArenaColor       { 70, 130, 180, 255 };
 inline constexpr Color kFighterP1        { 220,  80,  70, 255 };
 inline constexpr Color kFighterP2        {  70, 130, 220, 255 };
 inline constexpr Color kAccentColor      { 240, 200,  80, 255 };
-// M3 debug overlays: drawn around active hitboxes / hurtboxes so combat
-// behavior is visible during development. M6 will replace these with real
-// art (sprites + hit-spark VFX), at which point these constants can go.
-inline constexpr Color kCombatHitboxColor { 250,  60,  60, 255 };
-inline constexpr Color kCombatHurtboxColor{  60, 220,  90, 255 };
-
 // M5 HUD palette. Damage text + stock pips mirror each fighter's color so the
 // player can read their state at a glance. The KO banner is a bright
 // yellow-on-dark for high contrast over a busy arena.

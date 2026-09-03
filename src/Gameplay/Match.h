@@ -72,6 +72,23 @@ public:
     // Position of the most recent hit (for the hit-spark HUD overlay).
     HitEvent last_hit_position_for_test() const { return last_hit_; }
 
+    // M6-C: combat feel state. All read by App to drive the renderer
+    // (shake offset) and the test harness to verify the feel is firing.
+    // True while the match is in its hit-stop pause (motion + AI frozen,
+    // hit-spark still ages).
+    bool is_in_hit_stop() const { return hit_stop_frames_ > 0; }
+    // Frames remaining in the current hit-stop window. 0 when not stopped.
+    int  hit_stop_frames() const { return hit_stop_frames_; }
+    // True while the post-KO screen shake is still decaying.
+    bool is_in_ko_shake() const { return ko_shake_frames_ > 0; }
+    // Frames remaining in the post-KO shake. 0 when fully decayed.
+    int  ko_shake_frames() const { return ko_shake_frames_; }
+    // Current shake offset in render pixels. Magnitude decays linearly to
+    // 0 as the shake ages. x and y are signed; App forwards this to the
+    // renderer's view offset.
+    float ko_shake_offset_x() const { return ko_shake_offset_x_; }
+    float ko_shake_offset_y() const { return ko_shake_offset_y_; }
+
     // Test-only convenience: respawn a specific fighter immediately and
     // grant the standard post-respawn invuln window. Production code uses
     // the death-zone path; this is for the harness so it can set up
@@ -98,6 +115,13 @@ private:
     Phase  phase_{Phase::Fighting};
     HitEvent last_hit_{0.0f, 0.0f, false};
     int  hit_spark_age_{0};  // frames remaining for the active spark
+
+    // M6-C: combat feel state. Set on hit / KO, ticked each update, and
+    // consumed by App to drive the renderer.
+    int   hit_stop_frames_{0};     // > 0 means motion + AI are frozen
+    int   ko_shake_frames_{0};     // > 0 means the shake is still playing
+    float ko_shake_offset_x_{0.0f};// current shake offset, render pixels
+    float ko_shake_offset_y_{0.0f};
 };
 
 } // namespace ember

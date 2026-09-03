@@ -66,4 +66,25 @@ inline constexpr int kMaxHitSparks = 4;
 // without obscuring follow-up hits.
 inline constexpr int kHitSparkFrames = 6;
 
+// -----------------------------------------------------------------------------
+// M6-C: combat feel tuning.
+//
+// These are the "punchy" feel constants. They are deliberately separated from
+// the structural constants above so designers can change feel without
+// touching rules.
+// -----------------------------------------------------------------------------
+
+// Number of frames the simulation pauses (motion + AI frozen, but the hit-
+// spark still ages) when a hit connects. The classic Smash feel is 2-4
+// freeze frames; 3 is a safe starting point for the first playable slice.
+inline constexpr int kHitStopFrames = 3;
+
+// Maximum screen-shake magnitude in render pixels on a KO (the last stock
+// lost). The shake decays linearly to 0 over kKoShakeFrames.
+inline constexpr float kKoShakeMagnitude = 12.0f;
+
+// How long the KO shake plays in frames. ~14 frames = 0.23s; long enough to
+// read as "something big happened", short enough to not nauseate.
+inline constexpr int kKoShakeFrames = 14;
+
 } // namespace ember::combat

@@ -107,6 +107,13 @@ void App::update(double dt) {
 }
 
 void App::render() {
+    // M6-C: forward the post-KO screen shake (or the identity offset)
+    // from the match into the renderer. The renderer subtracts this
+    // offset from every draw call, which is the conventional "scene
+    // wobbles around the impact" feel.
+    renderer_->set_view_offset(
+        match_->ko_shake_offset_x(),
+        match_->ko_shake_offset_y());
     renderer_->clear(config::kClearColor);
     match_->render(*renderer_);
     renderer_->present();

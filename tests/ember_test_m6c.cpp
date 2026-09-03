@@ -327,6 +327,60 @@ int main() {
     }
 
     // -------------------------------------------------------------------
+    // [9] M6-C hit-stop: a successful hit freezes the simulation for
+    //     kHitStopFrames frames, during which motion does NOT advance.
+    // -------------------------------------------------------------------
+    SCENARIO_BEGIN("9");
+    {
+        Match match;
+        match.set_ai(1, nullptr);
+        InputManager input;
+        input.clear_for_test();
+
+        // Place P2 inside P1's jab range (same geometry as [5]).
+        const Aabb& p1 = match.fighter(0).body();
+        Aabb& p2 = match.fighter(1).body();
+        p2.x = p1.x + 30.0f;
+        p2.y = p1.y;
+
+        // Tap J for one frame (the tap is what initiates the jab).
+        // The jab's startup is 3 frames, so we tick 3 more times
+        // (one tick for the tap, then 3 startup frames inside the
+        // "find the hit" loop). The hit lands on the tick where
+        // attack_frame_ reaches 3 (the first active frame).
+        input.begin_frame_for_test();
+        input.set_held_for_test(SDLK_J, true);
+        match.update(input, 1.0 / 60.0);
+        input.set_held_for_test(SDLK_J, false);
+        // We don't know exactly which of the next few ticks the hit
+        // lands on (the test framework advances attack_frame_ at the
+        // start of Fighter::update and Match's hit detection runs
+        // after). Tick forward up to 5 frames and stop the moment
+        // hit-stop arms.
+        bool hit_stop_armed = false;
+        for (int i = 0; i < 5; ++i) {
+            input.begin_frame_for_test();
+            match.update(input, 1.0 / 60.0);
+            if (match.is_in_hit_stop()) { hit_stop_armed = true; break; }
+        }
+        CHECK(hit_stop_armed);
+        CHECK(match.hit_stop_frames() == ember::combat::kHitStopFrames);
+        // Confirm the hit actually connected (P2 took damage).
+        CHECK(match.fighter(1).damage_percent() > 0);
+
+        // While in hit-stop, P2's body should NOT advance.
+        const float frozen_y = p2.y;
+        for (int i = 0; i < ember::combat::kHitStopFrames; ++i) {
+            input.begin_frame_for_test();
+            match.update(input, 1.0 / 60.0);
+            CHECK(std::fabs(p2.y - frozen_y) < 0.001f);
+        }
+        // After kHitStopFrames ticks the freeze must be over.
+        CHECK(!match.is_in_hit_stop());
+        CHECK(match.hit_stop_frames() == 0);
+    }
+
+    // -------------------------------------------------------------------
     // [6] P1 launches P2 off the stage (death zone) and P2 respawns.
     //     We hand-place P2 at the edge of the stage and apply a single
     //     very-large knockback velocity so the death-zone path is exercised.
@@ -431,6 +485,118 @@ int main() {
         // Both fighters should be grounded and at their spawn positions.
         CHECK(match.fighter(0).is_grounded());
         CHECK(match.fighter(1).is_grounded());
+    }
+
+    // -------------------------------------------------------------------
+    // [10] M6-C KO shake: when the match ends (last stock lost), the
+    //      post-KO shake is armed. The shake decays over kKoShakeFrames
+    //      frames and goes back to (0, 0) once it has played out.
+    // -------------------------------------------------------------------
+    SCENARIO_BEGIN("10");
+    {
+        Match match;
+        match.set_ai(1, nullptr);
+        InputManager input;
+        input.clear_for_test();
+
+        // Before the KO, the shake is off.
+        CHECK(!match.is_in_ko_shake());
+        CHECK(match.ko_shake_frames() == 0);
+        CHECK(match.ko_shake_offset_x() == 0.0f);
+        CHECK(match.ko_shake_offset_y() == 0.0f);
+
+        // KO P2 by dropping them past the death zone 3 times. We sample
+        // the shake state on the very tick that the last stock is
+        // lost, so we don't tick a long wait that would let the shake
+        // fully decay before we observe it.
+        Aabb& p2 = match.fighter(1).body();
+        const float death_y = match.arena().death_zone_y();
+        bool observed_match_end = false;
+        for (int s = 0; s < combat::kStartingStocks; ++s) {
+            p2.x = match.arena().spawn_x(1);
+            p2.y = death_y + 100.0f;
+            // Tick once: this is the tick that detects the death-zone
+            // collision, decrements stocks, and (if the last stock was
+            // just lost) arms the shake.
+            input.begin_frame_for_test();
+            match.update(input, 1.0 / 60.0);
+            if (match.phase() == Match::Phase::MatchOver) {
+                observed_match_end = true;
+                // The shake must be armed and at full duration right
+                // after the match-end transition.
+                CHECK(match.is_in_ko_shake());
+                CHECK(match.ko_shake_frames() == ember::combat::kKoShakeFrames);
+                CHECK(std::fabs(match.ko_shake_offset_x()) <=
+                      ember::combat::kKoShakeMagnitude + 0.01f);
+                CHECK(std::fabs(match.ko_shake_offset_y()) <=
+                      ember::combat::kKoShakeMagnitude + 0.01f);
+                break;
+            }
+            // Not the last stock yet: let the respawn timer elapse and
+            // the fighter respawn so we can re-launch them.
+            for (int i = 0; i < 60; ++i) {
+                input.begin_frame_for_test();
+                match.update(input, 1.0 / 60.0);
+            }
+        }
+        CHECK(observed_match_end);
+        CHECK(match.phase() == Match::Phase::MatchOver);
+
+        // Tick the shake to completion.
+        for (int i = 0; i < ember::combat::kKoShakeFrames + 4; ++i) {
+            input.begin_frame_for_test();
+            match.update(input, 1.0 / 60.0);
+        }
+        // After kKoShakeFrames ticks the shake is fully decayed.
+        CHECK(!match.is_in_ko_shake());
+        CHECK(match.ko_shake_frames() == 0);
+        CHECK(match.ko_shake_offset_x() == 0.0f);
+        CHECK(match.ko_shake_offset_y() == 0.0f);
+    }
+
+    // -------------------------------------------------------------------
+    // [11] M6-C hit-spark: a successful hit stamps last_hit_position_for_test
+    //      with the impact point and a fresh hit_spark_age_.
+    // -------------------------------------------------------------------
+    SCENARIO_BEGIN("11");
+    {
+        Match match;
+        match.set_ai(1, nullptr);
+        InputManager input;
+        input.clear_for_test();
+
+        // Before any hits, the spark is not active.
+        {
+            const Match::HitEvent e = match.last_hit_position_for_test();
+            CHECK(!e.valid);
+        }
+
+        // Place P2 inside P1's jab range and tap J.
+        const Aabb& p1 = match.fighter(0).body();
+        Aabb& p2 = match.fighter(1).body();
+        p2.x = p1.x + 30.0f;
+        p2.y = p1.y;
+
+        input.begin_frame_for_test();
+        input.set_held_for_test(SDLK_J, true);
+        match.update(input, 1.0 / 60.0);
+        input.set_held_for_test(SDLK_J, false);
+
+        // The jab has 3 startup + 2 active frames. Walk through the
+        // startup into the active window so the hitbox is actually
+        // intersecting P2 on a tick - the spark only gets stamped on a
+        // successful hit, not on the tap.
+        for (int i = 0; i < 6; ++i) {
+            input.begin_frame_for_test();
+            match.update(input, 1.0 / 60.0);
+        }
+        // The hit lands. The spark should be valid and the impact x
+        // should be inside the hitbox (p1.x+12 .. p1.x+40, with the
+        // midpoint near p1.x+26).
+        const Match::HitEvent e = match.last_hit_position_for_test();
+        CHECK(e.valid);
+        CHECK(e.x > p1.x + 10.0f);
+        CHECK(e.x < p1.x + 50.0f);
     }
 
     std::printf("\n");
