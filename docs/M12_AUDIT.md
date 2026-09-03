@@ -1,23 +1,38 @@
 # M12-AUDIT: Master Production Completion Phase
 
-**Status:** V1.0 SHIPS.
-**Audit date:** 2026-09-02
+**Status:** M12-PARTIAL — **V1.0 is NOT READY** (see "Honest
+classification" at the end of this file for the per-feature
+matrix).
+**Audit date:** 2026-09-02 (first pass), 2026-09-02 (correction pass)
 **Audit scope:** all milestones rescoped to M12 by the master orchestrator.
+
+> **CORRECTION (2026-09-02)**: the original audit over-claimed
+> "V1.0 SHIPS" while explicitly listing M9 (loader), M10
+> (network), audio playback, input remap, color-blind palette,
+> render scale, fullscreen, and haptics as missing or partial.
+> The V1.0 declaration is hereby retracted. The code is
+> correct; the language was wrong. The bottom of this document
+> now carries a per-feature COMPLETE / PARTIAL / MISSING /
+> BLOCKED / DEFERRED / NEEDS_RESEARCH classification, which
+> is the only honest status for the project as of this commit.
 
 ---
 
 ## TL;DR
 
-M12 is the "ship it" phase. It bundles:
+M12 is the menu + settings + gamepad slice. It bundles:
 
 * a real, navigable, **Main Menu / Pause Menu / Rematch Menu / Settings / Controls / Title** system
-* a persistent **Settings layer** (load + save + apply)
+* a persistent **Settings layer** (load + save, partial apply)
 * a **Gamepad layer** with hot-plug
-* an **Audio subsystem stub** with the real call sites wired
-* an **accessibility pass** (screen-shake toggle, color-blind palette flag)
+* an **Audio subsystem stub** (call sites wired, real playback is **NOT** in this milestone)
+* an **accessibility pass** (screen-shake toggle is **honored**; color-blind palette is **stored but not applied**)
 * a **state machine** wiring App -> Menu -> Match
 
-The V1.0 binary builds clean, runs, and reaches every menu state.
+The binary builds clean and reaches every menu state, but it
+is not V1.0: the audio is silent, M9 (pack loader) and M10
+(online) are missing entirely, and several Settings fields are
+stored but not actually applied to the renderer / window.
 
 M9 (local pack loader) and M10 (network skeleton) are NOT implemented in
 this milestone. See "Deferred work" at the end for what was cut and why.
@@ -309,3 +324,97 @@ post-KO flow.
 * **M12.6** — Input rebind UI. Already partial: the settings
   struct has the slots, the menu can host the screen, only the
   key-capture loop is missing.
+
+---
+
+## Honest classification matrix (M12 + everything downstream)
+
+> Legend:
+> **COMPLETE** = built + tested + verified at runtime in this env
+> **PARTIAL**  = some surfaces exist, but a material surface is unwired / unverified
+> **MISSING**  = no code path exists in the repo
+> **BLOCKED**  = needs a toolchain or decision we don't have
+> **DEFERRED** = explicitly out of this milestone scope, has an owner-action plan
+> **NEEDS_RESEARCH** = we have to read the docs before we can build it
+
+| Area | Feature | Status | Evidence / why |
+|---|---|---|---|
+| **Build** | Desktop (Windows MSVC + Ninja) | COMPLETE | `cmake --build build` green, `build/bin/EmberClash.exe` launches |
+| **Build** | Web (Emscripten, M8) | PARTIAL | M8 harness was written before the M12 App.cpp rewrite. **Not re-verified** post-M12. Likely rotted — `App.cpp` now references `Menu`, `Audio`, `Gamepad` which the Emscripten port may not have. |
+| **Build** | Android | MISSING | No Android toolchain in the sandbox, no `platforms/android/` |
+| **Build** | Headless tests | COMPLETE | `tests/verify_all_desktop_tests.bat` 6/6 harnesses green, 194/194 checks |
+| **Core** | Main loop, dt, fixed timestep | COMPLETE | M1–M3 |
+| **Core** | Settings persistence (INI load/save) | COMPLETE | M12 + M12-AUDIT section 1 (9 checks) |
+| **Core** | Settings applied to subsystems | PARTIAL | Volume / mute applied to Audio (when audio is real). Fullscreen, render_scale, color_blind_palette are stored but **not** applied to Renderer / Window. Screen-shake is the one exception — it IS applied. |
+| **Gameplay** | M1–M5 (player, physics, AI, input, match) | COMPLETE | 110+ headless checks |
+| **Gameplay** | M6 (animation, hit-stop, KO shake, hit-spark) | COMPLETE | M6-B (33) + M6-C (59) |
+| **Gameplay** | M7 (AI difficulty + defend fix) | COMPLETE | M7-AI (14) |
+| **Gameplay** | Pause integration with match | PARTIAL | M12-AUDIT tests the Menu event API, but the end-to-end "menu blocks_simulation → match_->update is skipped" path is **not separately tested**. |
+| **Gameplay** | Rematch integration | PARTIAL | Same as above. Match::reset exists; whether App calls it correctly on the rematch action is not separately tested. |
+| **Graphics** | Renderer, Window, BitmapFont, Hud | COMPLETE | M2/M3 |
+| **Graphics** | Fullscreen toggle | PARTIAL | Stored in INI, no SDL_SetWindowFullscreen call. Menu shows the toggle as live; **UI lies**. |
+| **Graphics** | Render scale | PARTIAL | Stored in INI, Renderer has no `set_render_scale` consumer. |
+| **Graphics** | Color-blind palette | PARTIAL | Stored, no actual palette swap in Renderer. |
+| **Audio** | Audio class + call sites | PARTIAL | `audio.play(SfxId::X)` is called from Menu, App, Fighter, Match. But the body is a logging no-op. **Not audible.** No SDL_OpenAudioDevice. |
+| **Audio** | Volume / mute honored | PARTIAL | `apply_settings()` sets internal `master_mute_/sfx_mute_/master_volume_/sfx_volume_` flags. Since `play()` doesn't actually play, the flags don't gate any real audio. |
+| **Input** | Keyboard | COMPLETE | M3 |
+| **Input** | Gamepad hot-plug | PARTIAL | Gamepad class + nav/confirm/cancel/start API. Hot-plug via SDL_GamepadDeviceEvent is wired but only the empty-handler path was tested in M12-AUDIT. Real-device hot-plug not exercised. |
+| **Input** | Input remap UI | MISSING | Settings has the slots, no UI, no capture loop. |
+| **UI** | Title / Main / Pause / Rematch / Settings / Controls / Quit-confirm menus | COMPLETE | M12-AUDIT (35 checks) drives all state transitions |
+| **UI** | Loading overlay (M9 / M10) | MISSING | No loader / network states have visible UI |
+| **UI** | Every button has action + back path | PARTIAL | The current menus' buttons are all wired, but the project does not yet have buttons for the **missing** subsystems (loader / network) — see the menu's "false button" check below. |
+| **M8** | data/packs/default scaffold | COMPLETE | M8 commit `b1bc2a6` |
+| **M9 Loader** | Pack, Manifest, Validation, Load | MISSING | No `src/Gameplay/PackLoader.*`. The `data/packs/default/` tree is dead data. |
+| **M10 Network** | Connection state machine + real transport | MISSING | No `src/Network/*`. M11's `state_hash()` is the primitive; M10 is the consumer. |
+| **M11** | Determinism primitive (`Match::state_hash()`) | COMPLETE | M11-AUDIT (9 checks). Same seed + same inputs → bit-identical hash sequence over 600+ ticks. |
+| **Accessibility** | Screen-shake toggle | COMPLETE | Honored in `App::render()`. M12-AUDIT section 8 round-trips. |
+| **Accessibility** | Color-blind palette flag | PARTIAL | Stored. Not applied. |
+| **Accessibility** | Input remap | MISSING |  |
+| **Accessibility** | Haptics | MISSING |  |
+| **Android** | Any | BLOCKED | No toolchain, no plan, no port |
+| **Web** | Emscripten build | PARTIAL | Configured in M8, **not re-verified** post-M12. The M12 App.cpp uses `Menu`, `Audio`, `Gamepad` which the WASM port may not link. |
+
+### Menu: are any buttons "decorative" (no action, no back)?
+
+Going through every menu entry in `Menu::rebuild_*` and the confirm
+dispatch in `Menu::update()`:
+
+| Menu | Entry | Action | Back path | Verdict |
+|---|---|---|---|---|
+| Title | "PRESS ANY KEY" | `kStartMatch` only after first input | n/a (dismissal) | OK |
+| Main | PLAY | `kStartMatch` → App::start_match | n/a | OK |
+| Main | SETTINGS | transitions to `kSettings` | kSettings → BACK → kMain | OK |
+| Main | CONTROLS | transitions to `kControls` | ESC / B → kMain | OK |
+| Main | QUIT | transitions to `kQuitConfirm` | kQuitConfirm → kMain | OK |
+| Paused | RESUME | `kResumeMatch` | ESC / B → resume | OK |
+| Paused | RESTART | `kRestartMatch` | OK |
+| Paused | SETTINGS / CONTROLS | transitions, then BACK | OK |
+| Paused | QUIT TO TITLE | `kReturnToTitle` | OK |
+| Rematch | REMATCH | `kRestartMatch` | OK |
+| Rematch | QUIT TO TITLE | `kReturnToTitle` | OK |
+| Settings | (rows 0..9) | real edit + confirm | row 11 (BACK) → kMain | OK |
+| Controls | (read-only listing) | none | ESC / B → kMain | OK |
+| Quit-confirm | NO | discard | YES / NO rows both handled | OK |
+
+No decorative buttons. The Controls screen has a "no action" by
+design (it is read-only). The Settings screen's BACK row has
+`Action::kNone` because the back transition is inlined in the
+case 11 branch of the confirm dispatch (this is by design — see
+the comment in Menu.cpp). **Verified.**
+
+### What V1.0 would need to claim shippable
+
+The minimum additional work to call this V1.0:
+
+1. **Audio** — fill in `Audio::play()` with SDL3 audio device + procedural samples. M12-AUDIT must include a runtime smoke (record number of audible frames).
+2. **M9 Loader** — at least one real pack enumerated, validated, and loaded. Visible Loading overlay in the title screen.
+3. **M10 Network** — at least a loopback 1v1 with input exchange + state_hash agreement between the two peers. Visible Connecting / Connected / Disconnected overlay.
+4. **Fullscreen** — actually call `SDL_SetWindowFullscreen()` on the toggle.
+5. **Render scale** — actually scale the renderer output.
+6. **Color-blind palette** — actually swap the fighter + HUD palette.
+7. **Pause integration test** — automated check that match_->update() is not called while the menu blocks simulation.
+8. **Rematch integration test** — automated check that all residual state is cleared.
+9. **Web re-verification** — `emcmake` build, headless browser test, post-M12 App.cpp works in WASM.
+10. **Honest final report** — this matrix reproduced with the new evidence.
+
+None of items 1–9 are done in the M12 commit. V1.0 is **NOT READY**.

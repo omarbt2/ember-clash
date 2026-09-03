@@ -23,18 +23,21 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**M12 — Master production completion (V1.0 SHIPS).** See
-`docs/M12_AUDIT.md` for the full audit. Headline: a real navigable
+**M12 — Master production completion (M12-PARTIAL). V1.0 is NOT READY.** See
+`docs/M12_AUDIT.md` for the full audit + the honest per-feature
+classification matrix at the bottom. Headline: a real navigable
 main menu / pause / rematch / settings / controls / quit-confirm
 state machine; persistent Settings layer; Gamepad hot-plug layer;
-Audio subsystem stub with real call sites; accessibility options
-(screen_shake, color_blind_palette) that persist through INI. Full
-regression is **194 checks GREEN**. M9 (local pack loader) and
-M10 (online multiplayer) are explicitly **DEFERRED** to a later
-milestone — the rationale is in M12_AUDIT. The V1.0 binary is the
-build in `build/bin/EmberClash.exe` and the V1.0 commit is
-tagged `m12`. M11 is the previous milestone commit (tag `m11`).
-The M8 commit `b1bc2a6` is preserved on the master branch.
+Audio subsystem STUB (call sites wired, real playback MISSING);
+accessibility options (screen_shake IS honored;
+color_blind_palette stored but not applied). Full regression is
+**194 checks GREEN**. M9 (local pack loader) and M10 (online
+multiplayer) are **MISSING** (no code, not deferred). The V1.0
+declaration in the first M12 audit pass was **retracted** —
+the project as of this commit is not shippable. The current tag
+is `m12-partial`, NOT `m12`. M11 is the previous milestone
+commit (tag `m11`). The M8 commit `b1bc2a6` is preserved on the
+master branch.
 
 **M11 — Online / competitive hardening (audit complete, in-scope
 work done).** M9 (local multiplayer) and M10 (online) are still
