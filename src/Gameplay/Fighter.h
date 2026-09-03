@@ -34,12 +34,15 @@ public:
     const Aabb& body() const { return body_; }
     bool is_grounded() const { return grounded_; }
     bool is_dead() const { return dead_; }
+    bool is_invulnerable() const { return invuln_frames_ > 0; }
+    int  stocks() const { return stocks_; }
     int  damage_percent() const { return damage_percent_; }
     int  facing() const { return facing_; }                 // +1 or -1
     State state() const { return state_; }
     AttackId current_attack_id() const { return current_attack_id_; }
     int  attack_frame() const { return attack_frame_; }
     int  hitstun_frames() const { return hitstun_frames_; }
+    int  invuln_frames() const { return invuln_frames_; }
     const Vec2& velocity() const { return velocity_; }     // read-only (M4 AI)
 
     // Mutable accessors are intentionally not part of the public surface;
@@ -55,6 +58,24 @@ public:
 
     // Resets the fighter to full health at its designated spawn position.
     void respawn(const Arena& arena);
+
+    // Applies the post-respawn invulnerability window. Match calls this right
+    // after a respawn so the freshly-spawned fighter can't be combo'd
+    // immediately by an opponent camping the spawn platform.
+    void set_respawn_invuln_seconds(double seconds);
+
+    // Wipes per-match progression (stocks, damage, attack/hitstun state) so
+    // Match::reset() can start a rematch without touching the body/position
+    // reset that respawn() already handled.
+    void reset_for_rematch();
+
+    // Test-only setters. Used by the headless harness to inject state
+    // without going through combat or the death zone. Production code
+    // should never call these; the public update/respawn path is the only
+    // sanctioned way to mutate a fighter.
+    void set_dead_for_test(bool dead)  { dead_ = dead; }
+    void set_stocks_for_test(int stocks) { stocks_ = stocks; }
+    void set_invuln_frames_for_test(int f) { invuln_frames_ = f; }
 
     // One simulation tick. motion_intent drives walk / jump / fast-fall;
     // combat_intent drives attack initiation. Both are sampled by InputMap
@@ -96,6 +117,10 @@ private:
     int       attack_frame_    {0};
     bool      attack_has_hit_  {false};
     int       hitstun_frames_  {0};
+
+    // M5 match-flow state
+    int   stocks_{0};
+    int   invuln_frames_{0};
 
     // Internal: attempt to start a new attack based on combat_intent and
     // current grounded state. Returns true if an attack was started.

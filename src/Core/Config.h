@@ -47,4 +47,13 @@ inline constexpr Color kAccentColor      { 240, 200,  80, 255 };
 inline constexpr Color kCombatHitboxColor { 250,  60,  60, 255 };
 inline constexpr Color kCombatHurtboxColor{  60, 220,  90, 255 };
 
+// M5 HUD palette. Damage text + stock pips mirror each fighter's color so the
+// player can read their state at a glance. The KO banner is a bright
+// yellow-on-dark for high contrast over a busy arena.
+inline constexpr Color kHudTextColor    { 245, 245, 250, 255 };
+inline constexpr Color kHudStockColor   { 240, 220,  80, 255 };
+inline constexpr Color kHudStockLostColor{  60,  60,  70, 255 };
+inline constexpr Color kKoBannerColor   { 250, 230,  90, 255 };
+inline constexpr Color kHitSparkColor   { 255, 255, 200, 255 };
+
 } // namespace ember::config

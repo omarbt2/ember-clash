@@ -29,4 +29,41 @@ inline constexpr int kMaxDamagePercent = 999;
 // not actually be useful for combo extension in a future M3+ milestone.
 inline constexpr int kMinHitstunFrames = 4;
 
+// -----------------------------------------------------------------------------
+// M5: stocks, respawn, and match flow.
+//
+// All match-flow tuning lives here so designers can change the rules without
+// hunting through the codebase. The constants below are in fixed-step units
+// (frames) or seconds depending on what they gate; the per-frame ticker in
+// Match::update converts seconds to frames using config::kTargetFps.
+// -----------------------------------------------------------------------------
+
+// Number of lives each fighter starts a match with. 3 is the Smash standard.
+inline constexpr int kStartingStocks = 3;
+
+// Time a freshly-spawned fighter is invulnerable (in seconds). Prevents the
+// "spawn trap" of an opponent camping the spawn platform and comboing the
+// respawner before they can act.
+inline constexpr double kRespawnInvulnSeconds = 1.5;
+
+// How long the respawn animation blocks for before the fighter reappears
+// (in seconds). This is the *invisible* respawn time; the fighter is off-
+// stage during this window, so other systems can show effects over the empty
+// platform if they want.
+inline constexpr double kRespawnDelaySeconds = 0.5;
+
+// How long the "GAME!" banner plays before the rematch prompt takes over
+// (in seconds). Smash uses about 2.5s; we go a touch shorter to keep the
+// rematch flow snappy on a 60Hz test rig.
+inline constexpr double kKoBannerInitialSeconds = 1.5;
+
+// Total number of hit-sparks the match can have alive at once. Three slots is
+// plenty for two-fighter gameplay; if a third slot is needed we just don't
+// spawn the new spark.
+inline constexpr int kMaxHitSparks = 4;
+
+// Number of frames a hit-spark is visible for. ~6 frames is enough to register
+// without obscuring follow-up hits.
+inline constexpr int kHitSparkFrames = 6;
+
 } // namespace ember::combat

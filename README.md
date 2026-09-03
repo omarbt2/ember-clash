@@ -4,16 +4,20 @@ A 2D 1v1 platform fighter inspired by the *Smash Bros.* damage-and-knockback
 formula. Built from scratch in **C++20** with **SDL3**, no traditional game
 engine, on **CMake**.
 
-> **Current milestone: M4 - AI opponent.** Player 2 is now driven by a
-> deterministic state machine (Idle / Approach / Attack / Retreat /
-> Recover / Defend) with reaction-delay, attack-frequency, recovery-
-> priority, defensive-threshold, and jump-aggression knobs. The bot
-> plays a real match: approaches, commits to jabs / ftilt / nair, walks
-> back when damaged, and tries to recover when launched off-stage.
-> Difficulty is a single `ai::Difficulty` struct in
-> `src/Gameplay/AiConfig.h`; the M4 build ships the `kStandard`
-> preset. The state trace is reproducible for a given seed
-> (xorshift32), verified by the headless test harness (14/14 PASS).
+> **Current milestone: M5 - Match flow.** Three stocks per fighter; a KO
+> decrements the stock, schedules a respawn after `kRespawnDelaySeconds`
+> (`0.5s`), grants `kRespawnInvulnSeconds` (`1.5s`) of post-respawn
+> invulnerability, and ends the match when one fighter's stock count
+> hits 0. A `GAME!` banner shows for `kKoBannerInitialSeconds` (`1.5s`)
+> and then the rematch prompt (`P1 WINS - PRESS R`) for the rest of
+> the post-match time. Press `R` to rematch. The HUD is rendered with
+> a 4x6 bitmap font (no SDL_ttf dependency) and shows stock pips
+> plus a 2x-scaled damage % in the top corners of the screen, the
+> damage % also floats above each fighter, and a hit-spark `+`
+> flashes at the impact point for `kHitSparkFrames` frames.
+> M4's AI opponent is still in place (P2 = bot by default). Verified
+> by the headless M5 test harness (14/14 PASS) on top of the M4 AI
+> harness (14/14 PASS).
 
 ---
 
@@ -83,6 +87,7 @@ Controls (keyboard, two players on one keyboard):
 | Forward Tilt    | `K`            | Numpad `2`      |
 | Neutral Air     | `L` (in air)   | Numpad `3` (in air) |
 | Quit            | `Esc`          | `Esc`           |
+| Rematch         | `R`            | `R`             |
 
 You should see a dark navy background, a light-blue arena (main floor plus
 two elevated side platforms) outlined in yellow, a red fighter and a blue
@@ -129,15 +134,20 @@ implemented — for now just play against the bot and see how you do).
     ├── Physics/
     │   ├── Motion.{h,cpp}       Pure per-tick motion step
     │   └── PhysicsConfig.h      Tuning constants (gravity, walk, jump, ...)
+    ├── UI/
+    │   ├── BitmapFont.{h,cpp}   4x6 monospace font drawn with filled rects
+    │   └── Hud.{h,cpp}          HUD, KO banner, hit spark, damage-% text
     └── World/
         └── Arena.{h,cpp}        Platform list + collision + render
 └── tests/
     │   ├── ember_test_ai.cpp    Headless M4 AI test harness (6 scenarios, 14/14 PASS)
-    │   └── run_ai_test.bat      Build + run script for the AI test harness (Windows)
+    │   ├── run_ai_test.bat      Build + run script for the AI test harness (Windows)
+    │   ├── ember_test_m5.cpp    Headless M5 match-flow harness (6 scenarios, 14/14 PASS)
+    │   └── run_m5_test.bat      Build + run script for the M5 harness (Windows)
 ```
 
-`Audio/` and `UI/` will land in their own milestones and only when they
-have content.
+`UI/` ships in M5 (bitmap font + HUD). `Audio/` lands in its own
+milestone, when there is something to play.
 
 ---
 
@@ -157,7 +167,11 @@ have content.
    for Player 2 (Idle / Approach / Attack / Retreat / Recover / Defend),
    seeded RNG, full difficulty table, AI integrated into Match
    (P1 = human, P2 = bot by default), headless test harness (14/14 PASS).
-5. **M5 — Match flow**: KO, stocks, respawn timer, rematch.
+5. **M5 — Match flow** *(complete)*: 3 stocks each, KO decrements
+   stocks and schedules a respawn, post-respawn invulnerability, KO
+   banner with rematch prompt on `R`, HUD with stock pips + damage %,
+   hit-spark on each landed hit, bitmap-font UI (no SDL_ttf
+   dependency), 6 headless scenarios passing (14/14).
 6. **M6+**: final art, animation, audio, mobile (Android) port, web
    (Emscripten) port.
 
@@ -182,6 +196,11 @@ machine can be verified without launching a window.
 
        cd build
        run_ai_test.bat
+
+   3. Same drill for the M5 match-flow harness:
+
+       cd build
+       run_m5_test.bat
 
 You should see six numbered scenarios — wiring, custom difficulty,
 real-match simulation, FSM determinism, retreat on damage, and

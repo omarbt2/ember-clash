@@ -72,6 +72,13 @@ int App::run() {
             running_ = false;
         }
 
+        // M5: R rematches when the previous match is over. We poll after
+        // handle_events so a single press triggers a single rematch.
+        if (match_->phase() == Match::Phase::MatchOver
+            && input_->pressed(SDLK_R)) {
+            match_->reset();
+        }
+
         update(dt);
         render();
     }

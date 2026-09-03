@@ -79,6 +79,9 @@ set(EMBER_SOURCES
 
     src/Physics/Motion.cpp
 
+    src/UI/BitmapFont.cpp
+    src/UI/Hud.cpp
+
     src/World/Arena.cpp
 )
 

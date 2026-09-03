@@ -48,6 +48,41 @@ void Fighter::respawn(const Arena& arena) {
     attack_frame_      = 0;
     attack_has_hit_    = false;
     hitstun_frames_    = 0;
+    invuln_frames_     = 0;
+
+    // First call (from the constructor) initializes stocks to the starting
+    // value; subsequent calls (from Match on respawn) preserve the count so
+    // we don't refill lives mid-match.
+    if (stocks_ == 0) {
+        stocks_ = combat::kStartingStocks;
+    }
+}
+
+// Called by Match immediately after a respawn to grant the post-respawn
+// invulnerability window. In M5 the duration is in seconds; we convert to
+// frames at 60Hz here so the rest of Fighter can stay in fixed-step units.
+void Fighter::set_respawn_invuln_seconds(double seconds) {
+    if (seconds <= 0.0) {
+        invuln_frames_ = 0;
+        return;
+    }
+    // 60Hz fixed step; rounded up so even a 0.1s window is at least 1 frame.
+    const int frames = static_cast<int>(seconds * 60.0 + 0.5);
+    invuln_frames_ = frames;
+}
+
+// Used by Match::reset() to wipe a rematch's per-fighter state back to a
+// fresh match. Resets stocks, damage, and any in-progress attack/hitstun.
+void Fighter::reset_for_rematch() {
+    stocks_        = combat::kStartingStocks;
+    damage_percent_ = 0;
+    dead_           = false;
+    invuln_frames_  = 0;
+    hitstun_frames_ = 0;
+    state_          = State::Idle;
+    current_attack_id_ = AttackId::None;
+    attack_frame_      = 0;
+    attack_has_hit_    = false;
 }
 
 bool Fighter::try_start_attack(const CombatIntent& ci) {
@@ -88,6 +123,11 @@ void Fighter::update(const PlayerIntent& motion_intent,
                      double /*dt*/) {
     if (dead_) {
         return;
+    }
+
+    // --- Invulnerability decay (M5) ----------------------------------------
+    if (invuln_frames_ > 0) {
+        --invuln_frames_;
     }
 
     // --- State advance -----------------------------------------------------
@@ -134,15 +174,17 @@ void Fighter::update(const PlayerIntent& motion_intent,
 
     // --- Resolve arena collision -------------------------------------------
     grounded_ = arena.resolve_collision(body_, velocity_);
-
-    // --- Death-zone check --------------------------------------------------
-    if (body_.y > arena.death_zone_y()) {
-        dead_ = true;
-    }
+    // M5 note: the death-zone check used to live here, but it needed to
+    // happen BEFORE Fighter's own update so Match could still decrement
+    // stocks and start the respawn timer in the same frame. Match now owns
+    // the alive->dead transition; Fighter::update just leaves dead_ alone.
 }
 
 void Fighter::apply_hit(int damage, Vec2 knockback_velocity, int hitstun) {
     if (dead_) return;
+    // M5: invulnerable fighters ignore all incoming damage. Used to give the
+    // respawning fighter a brief safe window to get back to the stage.
+    if (invuln_frames_ > 0) return;
     damage_percent_ += damage;
     if (damage_percent_ > combat::kMaxDamagePercent) {
         damage_percent_ = combat::kMaxDamagePercent;
@@ -182,9 +224,15 @@ void Fighter::render(Renderer& renderer) const {
     renderer.draw_filled_rect(
         {body_.x, body_.y, body_.w, body_.h},
         color_);
+    // M5: flashing outline during post-respawn invulnerability. The exact
+    // pattern doesn't matter; this is a debug aid that ships in M5 to make
+    // the invuln window visible without UI text.
+    const config::Color outline = (invuln_frames_ > 0)
+        ? config::kHudTextColor
+        : config::kAccentColor;
     renderer.draw_rect_outline(
         {body_.x, body_.y, body_.w, body_.h},
-        config::kAccentColor);
+        outline);
 
     // Active hitbox overlay (M3 debug aid; M6 will replace with real art).
     if (state_ == State::Attacking) {

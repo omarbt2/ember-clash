@@ -23,28 +23,33 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**M4 — AI opponent (this milestone).** Player 2 is now driven by
-`ember::ai::AiController`, a deterministic finite-state machine with
-six states: `Idle` / `Approach` / `Attack` / `Retreat` / `Recover` /
-`Defend`. All tuning lives in `ember::ai::Difficulty` (defined in
-`src/Gameplay/AiConfig.h`): reaction delay, attack frequency, recovery
-priority, defensive threshold, jump aggression, RNG seed. RNG is
-xorshift32 so a given seed always produces the same bot trace (good
-for replays, tests, and bug reports). The bot is wired in by default
-for P2 through `Match::set_ai(...)`; M4 ships the `kStandard` preset
-and the headless test harness (`tests/ember_test_ai.cpp` built via
-`build/run_ai_test.bat`) covers six scenarios / 14 assertions, all
-green as of the M4 tag.
+**M5 — Match flow (this milestone).** Each fighter starts with 3
+stocks. A fighter whose body crosses the death zone this frame is
+marked dead, loses one stock, and (if any stocks remain) is respawned
+at the start position after `kRespawnDelaySeconds` (0.5s) with
+`kRespawnInvulnSeconds` (1.5s) of invulnerability — during which
+`Fighter::apply_hit` is a no-op so the respawned fighter can't be
+combo'd off the platform. When one fighter's stock count hits 0,
+`Match::phase` transitions to `MatchOver` and a 1.5s `GAME!` banner
+shows. After that, a `P1 WINS - PRESS R` prompt is rendered and the
+player rematches with `R` (handled in `App::run`). The HUD (top-left
+P1 card, top-right P2 card) draws three stock pips in the player's
+color plus a 2x-scaled damage %; the damage % also floats above each
+fighter's head. Each landed hit briefly renders a yellow `+` spark
+at the impact point for `kHitSparkFrames` (6) frames. All UI is
+rendered with a hand-rolled 4x6 monospace bitmap font
+(`src/UI/BitmapFont.cpp`) — no SDL_ttf dependency, no font asset to
+ship. M4's AI opponent is still attached to P2 by default. Verified
+by the headless M5 harness (`tests/ember_test_m5.cpp` /
+`build/run_m5_test.bat`, 6 scenarios / 14 assertions) and the M4 AI
+harness (14/14 still green).
 
-M3 — Combat + Hitboxes — is complete. Three attacks (Jab / Forward
-Tilt / Neutral Air), hitbox/hurtbox, damage %, knockback formula,
-hitstun, fighter state machine (`Idle` / `Attacking` / `Hitstun` /
-`Dead`) all ship and are exercised by the M3 headless combat harness.
+M4 — AI opponent — is complete. Six FSM states, xorshift32 RNG,
+`ember::ai::Difficulty` tuning struct, headless test (14/14).
 
-M5 (Match flow: stocks, KO, respawn timer, rematch, damage-% UI,
-KO banner) is next. M6+ covers final art, animation, audio, then the
-Android and Emscripten ports. We do not auto-start M5 without an
-explicit owner request (per orchestrator doc §34).
+M6+ covers final art, animation, audio, then the Android and
+Emscripten ports. We do not auto-start M6 without an explicit
+owner request (per orchestrator doc §34).
 
 ## Build & run
 
@@ -103,13 +108,21 @@ src/
                            PhysicsConfig.h for all tuning
     PhysicsConfig.h        tuning constants (gravity, walk, jump, fast-fall,
                            air control, terminal velocity)
+  UI/  (M5)
+    BitmapFont.{h,cpp}     4x6 monospace font drawn with filled rects;
+                           draw_text / measure_text helpers; no SDL_ttf
+                           dependency, no font asset to ship
+    Hud.{h,cpp}            static draw helpers for the M5 HUD: fighter
+                           card (stock pips + damage %), damage floats,
+                           hit spark, KO banner; format_damage helper
+                           used by the headless test
   World/
     Arena.{h,cpp}          platform list + AABB collision + render
 ```
 
-`Audio/` and `UI/` are **not** created yet - we add them only when they
-have content. Do not create empty stub headers just to "reserve" the
-namespace.
+`Audio/` is still **not** created - it lands in its own milestone when
+we have something to play. `UI/` is live in M5; don't create empty
+stub headers in other namespaces just to "reserve" them.
 
 ## Operating policy (from the orchestrator doc)
 
@@ -230,6 +243,26 @@ machine. If you just let the game sit for a few seconds after launch,
 P2 should walk toward P1, start swinging jabs / ftilt / nair, and
 occasionally back off when it has taken damage.
 
+For M5 the visual baseline adds:
+* **Stock pips** at the top corners (P1 top-left, P2 top-right) -
+  three filled rects in the player's color, one per remaining stock.
+  Lost stocks are dim outlines.
+* **Damage %** in the corner cards, 2x scale, 0% through 999% with
+  leading-zero suppression.
+* **Damage floats** above each fighter's head, 1x scale, so the
+  number is visible mid-action without having to glance at the
+  corner cards.
+* **Hit spark** - a yellow `+` that flashes at the impact point for
+  `kHitSparkFrames` (6) frames after each landed hit.
+* **KO banner** - a dark band across the middle of the screen; the
+  text is `GAME!` for the first `kKoBannerInitialSeconds` (1.5s),
+  then `P1 WINS - PRESS R` (or `P2 WINS - PRESS R`) for the rest
+  of the post-match time. Pressing `R` returns to Fighting.
+* **Death and respawn**: a fighter launched below the death zone
+  disappears for `kRespawnDelaySeconds` (0.5s), then reappears at
+  the spawn position with a white outline (visual cue for
+  invulnerability) for `kRespawnInvulnSeconds` (1.5s) more.
+
 ### Headless test harness (scratch tests)
 
 For purely-logical changes (state machines, formulas, geometry), the
@@ -248,14 +281,17 @@ with M4, the headless tests are checked in under `tests/`:
 ```
 tests/
   ember_test_ai.cpp    M4 AI test (6 scenarios / 14 assertions, all green)
-  run_ai_test.bat      build/runner script (Windows)
+  run_ai_test.bat      runner script (Windows) - also lives at build/run_ai_test.bat
+  ember_test_m5.cpp    M5 match-flow test (6 scenarios / 14 assertions)
+  run_m5_test.bat      runner script (Windows) - also lives at build/run_m5_test.bat
 ```
 
-The runner is invoked as `build/run_ai_test.bat` (it lives under
-`build/` because it needs to find the per-file `*.cpp.obj` files that
-CMake produces there; the `tests/` source is passed in as a command-
-line argument). All test artifacts (`ember_test_ai.exe`, `*.ilk`,
-`*.pdb`) live under `build/` and are gitignored.
+The runners are invoked as `build/run_ai_test.bat` and
+`build/run_m5_test.bat` (they live under `build/` because they need
+to find the per-file `*.cpp.obj` files that CMake produces there;
+the `tests/` sources are passed in as command-line arguments). All
+test artifacts (`ember_test_*.exe`, `*.ilk`, `*.pdb`) live under
+`build/` and are gitignored.
 
 ### AI conventions (M4)
 
@@ -277,6 +313,46 @@ line argument). All test artifacts (`ember_test_ai.exe`, `*.ilk`,
   test harness in `tests/ember_test_ai.cpp` should be extended to
   cover any new state.
 
+### Match-flow conventions (M5)
+
+* `ember::Match::Phase` is a 2-state machine: `Fighting` and
+  `MatchOver`. Transitions only happen in one place -
+  `Match::update` sets `phase_ = MatchOver` when a fighter's stock
+  count drops to 0, and `App::run` calls `Match::reset()` on a
+  `R` press when `phase == MatchOver`. Don't trigger resets from
+  anywhere else; that creates racey transitions during the banner.
+* `Match::update` runs six steps in a fixed order every tick:
+  1) death-zone bookkeeping (decrement stock, start respawn
+  timer), 2) drive each fighter via AI or input, 3) resolve
+  hitboxes, 4) tick respawn timers, 5) check for match end, 6)
+  age out the hit spark. Keep the order stable - reordering these
+  can shift a stock decrement by one frame and break the harness.
+* `Fighter::apply_hit` is a no-op when the target is
+  invulnerable. The match flow is the only place that calls
+  `Fighter::set_respawn_invuln_seconds`; production code never
+  grants invulnerability by any other path.
+* `Fighter::stocks_` is *per-fighter match progression*; it does
+  not reset on `Fighter::respawn(arena)` (the respawn only resets
+  body/damage/attack state). `Match::reset()` re-creates the
+  fighters from scratch, which is the only path that restores the
+  starting stock count. This matches the smash-style "stocks are
+  only refreshed between matches" rule.
+* All M5 tuning constants live in `src/Gameplay/CombatConfig.h`:
+  `kStartingStocks`, `kRespawnDelaySeconds`, `kRespawnInvulnSeconds`,
+  `kKoBannerInitialSeconds`, `kHitSparkFrames`, `kMaxHitSparks`. The
+  death-zone y is in `src/World/Arena.h` (`Arena::death_zone_y()`).
+  Do not hard-code any of these in `Match.cpp` / `Fighter.cpp` /
+  `Hud.cpp` - tune them in CombatConfig.h / Arena.
+* The HUD palette (`kHudTextColor`, `kHudStockColor`,
+  `kHudStockLostColor`, `kKoBannerColor`, `kHitSparkColor`) lives
+  in `src/Core/Config.h`.
+* M5 deliberately avoids SDL_ttf / FreeType / any font asset. The
+  4x6 monospace font in `src/UI/BitmapFont.cpp` covers the
+  characters the M5 HUD actually needs: 0-9, A-Z, space, `!`, `?`,
+  `+`, `-`, `:`, `.`, `%`. Add new glyphs to the `kGlyphs` table
+  if a future milestone needs more (e.g. lowercase, parentheses,
+  digits beyond 9).
+
 ## Git
 
 Single branch: `master`. Commits use `openhands` as author.
@@ -285,5 +361,8 @@ Working commits to date:
 * `388682a` - AGENTS.md bootstrap
 * `d80ce00` - master orchestrator doc adoption
 * `853062a` - M2 movement + physics + arena
-* *(this session)* - M3 combat + hitboxes (Jab, FTilt, NAir) + M2
+* `...`     - M3 combat + hitboxes (Jab, FTilt, NAir) + M2
   resolve_collision bugfix
+* `...`     - M4 AI opponent + headless test (14/14)
+* *(this session)* - M5 match flow (stocks, respawn, KO banner,
+  rematch, HUD) + headless test (14/14)

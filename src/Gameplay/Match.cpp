@@ -9,6 +9,7 @@
 #include "Gameplay/InputMap.h"
 #include "Graphics/Renderer.h"
 #include "Input/InputManager.h"
+#include "UI/Hud.h"
 
 #include <cmath>
 
@@ -30,7 +31,10 @@ bool aabb_overlap(const Aabb& a, const Aabb& b) {
 // the per-hit response (knockback velocity + hitstun) and apply it. The
 // caller is responsible for verifying the overlap and the attacker's
 // `attack_has_hit_` flag; this function does not check them.
-void apply_attack(Fighter& attacker, Fighter& target) {
+//
+// Returns true if the hit actually landed (target wasn't invulnerable), so
+// Match can record a hit-spark at the impact point.
+bool apply_attack(Fighter& attacker, Fighter& target) {
     const Attack& atk = get_attack(attacker.current_attack_id());
 
     // Knockback formula per the design brief \u00a713.
@@ -41,23 +45,30 @@ void apply_attack(Fighter& attacker, Fighter& target) {
                        + static_cast<double>(damage)
                          / static_cast<double>(combat::kKnockbackDamageDivisor));
 
-    // Knockback angle is in attacker's local space; facing flips the x.
     const double sx = static_cast<double>(atk.knockback_angle_x) * static_cast<double>(attacker.facing());
     const double sy = static_cast<double>(atk.knockback_angle_y);
-    // Re-normalize the unit vector in case a designer typed a non-unit
-    // (cos, sin) pair into Attack.cpp. Cheap, no math.h needed.
     const double mag = std::sqrt(sx * sx + sy * sy);
     const double nx  = (mag > 1e-6) ? sx / mag : sx;
     const double ny  = (mag > 1e-6) ? sy / mag : sy;
 
     const Vec2 knockback_velocity{ nx * kb, ny * kb };
 
+    // Pre-hit record so we can detect whether the target rejected the hit
+    // (invulnerability) before mutating anything.
+    const bool was_invuln = target.is_invulnerable();
     target.apply_hit(atk.damage, knockback_velocity, atk.hitstun_frames);
+    return !was_invuln && !target.is_dead();
+}
+
+// Midpoint of the AABB. Used for hit-spark placement.
+Vec2 aabb_center(const Aabb& a) {
+    return Vec2{ a.x + a.w * 0.5f, a.y + a.h * 0.5f };
 }
 
 } // namespace
 
-Match::Match() {
+Match::Match()
+    : respawn_timer_{ -1.0, -1.0 } {
     reset();
     // M4 default: P1 is human-controlled, P2 is the bot. The future
     // difficulty-select screen will swap this; the harness can override it
@@ -71,12 +82,17 @@ void Match::reset() {
     arena_.reset_default();
     for (int i = 0; i < kFighterCount; ++i) {
         fighters_[i] = std::make_unique<Fighter>(i, arena_);
+        respawn_timer_[i] = -1.0;
     }
     // AI controllers are not owned by the fighters; reset their internal
     // state but keep them attached so a rematch keeps the same difficulty.
     for (int i = 0; i < kFighterCount; ++i) {
         if (ai_[i]) ai_[i]->reset_for_test();
     }
+    ko_banner_timer_ = 0.0;
+    phase_           = Phase::Fighting;
+    last_hit_        = HitEvent{0.0f, 0.0f, false};
+    hit_spark_age_   = 0;
 }
 
 void Match::set_ai(int fighter_index, std::unique_ptr<AiController> controller) {
@@ -95,15 +111,43 @@ const AiController* Match::ai(int fighter_index) const {
 }
 
 void Match::update(const InputManager& input, double dt) {
-    // 1) Drive each fighter. AI-controlled fighters ask their controller
-    //    for intents; everyone else uses the keyboard.
+    // M5: when the match is over, freeze all fighter motion and just let
+    // the KO banner timer tick. The rematch reset comes from App when the
+    // player presses R.
+    if (phase_ == Phase::MatchOver) {
+        ko_banner_timer_ += dt;
+        if (hit_spark_age_ > 0) --hit_spark_age_;
+        return;
+    }
+
+    // 1) Death-zone detection (pre-update). M5: Match owns the alive->dead
+    //    transition so the stock decrement + respawn timer kick in in the
+    //    same frame the fighter falls off. Done before Fighter::update so
+    //    a fighter that was already past the death zone at frame start
+    //    gets the bookkeeping this frame instead of next.
+    for (int i = 0; i < kFighterCount; ++i) {
+        Fighter& f = *fighters_[i];
+        if (!f.is_dead() && f.body().y > arena_.death_zone_y()) {
+            f.set_dead_for_test(true);
+            if (f.stocks() > 0) {
+                f.set_stocks_for_test(f.stocks() - 1);
+            }
+            if (f.stocks() > 0) {
+                respawn_timer_[i] = combat::kRespawnDelaySeconds;
+            }
+        }
+    }
+
+    // 2) Drive each fighter. AI-controlled fighters ask their controller
+    //    for intents; everyone else uses the keyboard. Dead fighters are
+    //    skipped here; their respawn timer ticks down in step 4.
     for (int i = 0; i < kFighterCount; ++i) {
         Fighter& self = *fighters_[i];
+        if (self.is_dead()) continue;
+
         PlayerIntent motion{};
         CombatIntent combat{};
         if (ai_[i]) {
-            // The opponent is whoever is on the other index. With kFighterCount
-            // == 2 this is just (1 - i).
             const int opp_idx = (i == 0) ? 1 : 0;
             const Fighter& opp = *fighters_[opp_idx];
             ai_[i]->decide(self, opp, arena_, dt, motion, combat);
@@ -115,10 +159,9 @@ void Match::update(const InputManager& input, double dt) {
         self.update(motion, combat, arena_, dt);
     }
 
-    // 2) Resolve hits: for each ordered pair (attacker, defender) where the
+    // 3) Resolve hits: for each ordered pair (attacker, defender) where the
     //    attacker's current attack is in its active window and the hitbox
-    //    overlaps the defender's hurtbox, apply the hit. has_hit_ prevents
-    //    one swing from re-hitting every frame its hitbox is on screen.
+    //    overlaps the defender's hurtbox, apply the hit.
     for (int a = 0; a < kFighterCount; ++a) {
         Fighter& attacker = *fighters_[a];
         const Aabb hb = attacker.active_hitbox();
@@ -129,19 +172,50 @@ void Match::update(const InputManager& input, double dt) {
             Fighter& target = *fighters_[d];
             if (target.is_dead()) continue;
             if (aabb_overlap(hb, target.body())) {
-                apply_attack(attacker, target);
+                if (apply_attack(attacker, target)) {
+                    const Vec2 c = aabb_center(hb);
+                    last_hit_      = HitEvent{
+                        static_cast<float>(c.x),
+                        static_cast<float>(c.y),
+                        true
+                    };
+                    hit_spark_age_ = combat::kHitSparkFrames;
+                }
             }
         }
     }
 
-    // 3) Auto-respawn: M3 has no KO counter yet, so dead fighters simply
-    //    teleport back to their starting position. M5 will add a respawn
-    //    timer and the stock / KO counter.
+    // 4) Respawn tick: when a fighter's timer reaches 0, respawn them and
+    //    apply the post-respawn invulnerability window. Skipped once the
+    //    fighter's stocks have hit 0 - they stay off-stage and the match
+    //    ends.
     for (int i = 0; i < kFighterCount; ++i) {
-        if (fighters_[i]->is_dead()) {
+        if (respawn_timer_[i] < 0.0) continue;
+        respawn_timer_[i] -= dt;
+        if (respawn_timer_[i] <= 0.0) {
+            respawn_timer_[i] = -1.0;
             fighters_[i]->respawn(arena_);
+            fighters_[i]->set_respawn_invuln_seconds(
+                combat::kRespawnInvulnSeconds);
         }
     }
+
+    // 5) Match-end check: when at least one fighter has 0 stocks, the
+    //    match is over.
+    bool any_out = false;
+    for (int i = 0; i < kFighterCount; ++i) {
+        if (fighters_[i]->stocks() <= 0) {
+            any_out = true;
+            break;
+        }
+    }
+    if (any_out) {
+        phase_           = Phase::MatchOver;
+        ko_banner_timer_ = 0.0;
+    }
+
+    // 6) Hit-spark aging.
+    if (hit_spark_age_ > 0) --hit_spark_age_;
 }
 
 void Match::render(Renderer& renderer) const {
@@ -158,6 +232,22 @@ void Match::render(Renderer& renderer) const {
             {body.x, body.y, body.w, body.h},
             config::kCombatHurtboxColor);
     }
+    // M5 HUD: per-fighter damage-floats above their heads, then the
+    // fighter cards in the top corners.
+    for (int i = 0; i < kFighterCount; ++i) {
+        ui::Hud::draw_damage_floats(renderer, *fighters_[i]);
+    }
+    ui::Hud::draw_fighter_card(renderer, *fighters_[0], 0);
+    ui::Hud::draw_fighter_card(renderer, *fighters_[1], 1);
+
+    // Hit-spark overlay.
+    if (hit_spark_age_ > 0 && last_hit_.valid) {
+        ui::Hud::draw_hit_spark(renderer, last_hit_.x, last_hit_.y,
+                                hit_spark_age_);
+    }
+
+    // KO banner last so it sits on top of everything else.
+    ui::Hud::draw_ko_banner(renderer, *this, *fighters_[0], *fighters_[1]);
 }
 
 const Fighter& Match::fighter(int index) const {
