@@ -57,6 +57,9 @@ Thumbs.db
 .DS_Store
 desktop.ini
 
+# Build / debug log files (never ship; only useful during local builds)
+*.log
+
 # SDL3 fetched sources (FetchContent cache)
 _third_party/
 _external/

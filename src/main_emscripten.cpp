@@ -32,7 +32,7 @@ namespace {
 ember::App* g_app = nullptr;
 double      g_last_ticks_seconds = 0.0;
 
-void main_loop_tick(void* /*userdata*/) {
+void main_loop_tick() {
     if (!g_app) {
         return;
     }

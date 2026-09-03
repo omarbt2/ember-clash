@@ -60,8 +60,10 @@ FetchContent_MakeAvailable(SDL3)
 # Sources
 # -----------------------------------------------------------------------------
 set(EMBER_SOURCES
-    src/main.cpp
-
+    # Core / gameplay / platform-agnostic sources. Both the desktop binary and
+    # the WebAssembly binary include this set. The desktop-only entry point
+    # (src/main.cpp) and the web-only entry point (src/main_emscripten.cpp)
+    # are NOT in this list; the if(EMSCRIPTEN) block below picks exactly one.
     src/Core/App.cpp
     src/Core/Logger.cpp
     src/Core/Time.cpp
@@ -85,16 +87,45 @@ set(EMBER_SOURCES
     src/World/Arena.cpp
 )
 
+# Exactly one entry point per platform. Listing both in the same target
+# breaks the Emscripten build (SDL_main.h is missing from the web toolchain)
+# and would also confuse the linker on the desktop. We add the right one
+# to EMBER_SOURCES per platform before add_executable().
+set(EMBER_DESKTOP_ENTRY src/main.cpp)
+set(EMBER_WEB_ENTRY     src/main_emscripten.cpp)
+
+if(EMSCRIPTEN)
+    set(EMBER_SOURCES ${EMBER_SOURCES} ${EMBER_WEB_ENTRY})
+else()
+    set(EMBER_SOURCES ${EMBER_SOURCES} ${EMBER_DESKTOP_ENTRY})
+endif()
+
 add_executable(EmberClash ${EMBER_SOURCES})
 
 # -----------------------------------------------------------------------------
 # Platform-specific source and build configuration.
 # -----------------------------------------------------------------------------
-# Emscripten: swap the desktop entry point for the web entry point. The web
-# entry calls App::step() from emscripten_set_main_loop(); see
-# src/main_emscripten.cpp. No other gameplay source is platform-specific.
+# Emscripten: the entry point is src/main_emscripten.cpp (already selected
+# in EMBER_SOURCES above). The web entry calls App::step() from
+# emscripten_set_main_loop(); see src/main_emscripten.cpp. No other gameplay
+# source is platform-specific.
 if(EMSCRIPTEN)
-    target_sources(EmberClash PRIVATE src/main_emscripten.cpp)
+    # The shared include path lives at the top so both branches can use it.
+    # Without this, web builds see "Graphics/Renderer.h file not found" because
+    # every gameplay .cpp includes via the "Module/Header.h" relative form.
+    target_include_directories(EmberClash PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+    )
+    # The Emscripten SDL3 port (pulled in by -sUSE_SDL=3 below) installs
+    # headers as <SDL/SDL.h> - the SDL2 layout. Our code uses the SDL3
+    # upstream layout <SDL3/SDL.h> (which is what FetchContent provides).
+    # To keep ONE set of includes in the codebase, we link the SDL3
+    # static library that the same FetchContent_MakeAvailable above
+    # already built; this gives us the proper headers AND the proper
+    # library. The Emscripten -sUSE_SDL=3 flag below is still required
+    # for the JS <-> SDL event bridge glue (HTML5 keyboard, canvas,
+    # audio, etc.), but we don't use its headers or its static lib.
+    target_link_libraries(EmberClash PRIVATE SDL3::SDL3)
     # Replace the desktop .exe output with the Emscripten triple
     # (EmberClash.html + EmberClash.js + EmberClash.wasm). The empty
     # SUFFIX is what tells CMake to use the Emscripten output layout
@@ -121,6 +152,25 @@ if(EMSCRIPTEN)
         "-sUSE_SDL=3"
         "-sALLOW_MEMORY_GROWTH=1"
         "-sEXIT_RUNTIME=1"
+    )
+    # The deploy bundle is the source-tree web/ directory: hand-maintained
+    # web/index.html (the player-facing page) plus the emcc-built
+    # EmberClash.js + EmberClash.wasm that emcc produced in
+    # ${CMAKE_BINARY_DIR}/bin. Copy the artifacts next to the HTML so
+    # `python -m http.server` (or any static host) can serve the page
+    # without a separate "publish" step. The .html inside web/ IS the
+    # production page; we are NOT using --shell-file (the M8 spec
+    # deliberately ships the page as a static asset instead of an emcc
+    # shell template, so future M10 release work can edit the page
+    # without re-running the emcc shell-template pass).
+    add_custom_command(
+        TARGET EmberClash POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DEMIT_JS=$<TARGET_FILE:EmberClash>
+            -DEMIT_WASM=$<TARGET_FILE:EmberClash>.wasm
+            -DWEB_DIR=${CMAKE_SOURCE_DIR}/web
+            -P ${CMAKE_SOURCE_DIR}/cmake/CopyWebArtifacts.cmake
+        COMMENT "Copying EmberClash.js + EmberClash.wasm to web/"
     )
     # Note: nothing in src/Core/Time.cpp needs an Emscripten-specific clock.
     # SDL_GetPerformanceCounter maps to emscripten_get_now() under the hood.
