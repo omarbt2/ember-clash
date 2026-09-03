@@ -23,6 +23,19 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
+**M12 — Master production completion (V1.0 SHIPS).** See
+`docs/M12_AUDIT.md` for the full audit. Headline: a real navigable
+main menu / pause / rematch / settings / controls / quit-confirm
+state machine; persistent Settings layer; Gamepad hot-plug layer;
+Audio subsystem stub with real call sites; accessibility options
+(screen_shake, color_blind_palette) that persist through INI. Full
+regression is **194 checks GREEN**. M9 (local pack loader) and
+M10 (online multiplayer) are explicitly **DEFERRED** to a later
+milestone — the rationale is in M12_AUDIT. The V1.0 binary is the
+build in `build/bin/EmberClash.exe` and the V1.0 commit is
+tagged `m12`. M11 is the previous milestone commit (tag `m11`).
+The M8 commit `b1bc2a6` is preserved on the master branch.
+
 **M11 — Online / competitive hardening (audit complete, in-scope
 work done).** M9 (local multiplayer) and M10 (online) are still
 **MISSING** in the codebase, so M11 cannot harden any real online
@@ -494,3 +507,33 @@ Working commits to date:
   Do NOT fold display-only state (renderer view offset, UI
   strings) or AI RNG internal state (two bots with the same
   seed make the same decisions regardless of RNG representation).
+* **M12 Menu / App contract**: `Menu` emits an `Action` per
+  frame via `consume_action()`. `App` reads it and applies the
+  side effect. The Menu NEVER touches `Match` / `Fighter`
+  directly. `App::update()` calls `menu_->update(input, gamepad,
+  audio)` first, then handles the resulting action. The
+  `blocks_simulation()` query tells `App` whether to call
+  `match_->update()` this frame. To jump to a particular Menu
+  state from production code use `Menu::set_state(State)`; the
+  `set_state_for_test` / `selected_index_for_test` /
+  `set_settings_for_test` helpers are the headless test seam
+  and are mirrored in `tests/ember_test_m12.cpp`.
+* **M12 Settings contract**: `Settings` is plain-old-data with
+  member-initializer defaults. Add a new field by (1) declaring
+  it in `Settings.h` with the default, (2) writing the
+  `write_*`/`read_*` in `Settings.cpp` for the new key, (3)
+  adding it to `reset_to_defaults()`, (4) adding it to
+  `operator==()`, (5) (if user-facing) adding it to
+  `Menu::rebuild_settings_entries()` AND the `confirm` dispatch
+  in `Menu::update()`. The M12-AUDIT test round-trips every
+  field through the INI parser so any missing step will trip
+  the regression.
+* **M12 App link list**: every `tests/run_*.bat` that links
+  `App.cpp.obj` MUST also link `Settings.cpp.obj`,
+  `Gamepad.cpp.obj`, `Audio.cpp.obj`, and `Menu.cpp.obj` (and
+  any new subsystem the App picks up in the future). M12 added
+  the four entries; M12.5-Audio and M13+ will need the same
+  update when new subsystems land.
+* **M12 deferred**: local pack loader (M9), online multiplayer
+  (M10), real audio, input remap UI, controller haptics. All
+  are documented in `docs/M12_AUDIT.md` with rationale.
