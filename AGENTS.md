@@ -23,39 +23,62 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**M5 — Match flow (this milestone).** Each fighter starts with 3
-stocks. A fighter whose body crosses the death zone this frame is
-marked dead, loses one stock, and (if any stocks remain) is respawned
-at the start position after `kRespawnDelaySeconds` (0.5s) with
-`kRespawnInvulnSeconds` (1.5s) of invulnerability — during which
-`Fighter::apply_hit` is a no-op so the respawned fighter can't be
-combo'd off the platform. When one fighter's stock count hits 0,
-`Match::phase` transitions to `MatchOver` and a 1.5s `GAME!` banner
-shows. After that, a `P1 WINS - PRESS R` prompt is rendered and the
-player rematches with `R` (handled in `App::run`). The HUD (top-left
-P1 card, top-right P2 card) draws three stock pips in the player's
-color plus a 2x-scaled damage %; the damage % also floats above each
-fighter's head. Each landed hit briefly renders a yellow `+` spark
-at the impact point for `kHitSparkFrames` (6) frames. All UI is
-rendered with a hand-rolled 4x6 monospace bitmap font
-(`src/UI/BitmapFont.cpp`) — no SDL_ttf dependency, no font asset to
-ship. M4's AI opponent is still attached to P2 by default. Verified
-by the headless M5 harness (`tests/ember_test_m5.cpp` /
-`build/run_m5_test.bat`, 6 scenarios / 14 assertions) and the M4 AI
-harness (14/14 still green).
+**M8 — WebAssembly / release integration (this milestone).** Desktop
+is still the reference platform; the codebase is now also buildable
+for the browser via Emscripten. M8 is the smallest coherent set of
+changes that makes that work without touching any gameplay code:
+
+* `App::run` was split into `App::step(double dt)` (one frame of
+  work) + `App::run` (the desktop blocking loop) + `App::request_exit()`.
+  The split is the only refactor. `Match`, `Fighter`, AI, physics,
+  combat, HUD, and bitmap font are untouched. The full M4 + M5
+  regression suite (28/28 asserts) still passes.
+* `src/main_emscripten.cpp` (compiled only when the toolchain
+  defines `EMSCRIPTEN`) is a 60-line file that calls
+  `emscripten_set_main_loop()` with a trampoline that invokes
+  `app.step(dt)`. The desktop `src/main.cpp` (`int SDL_main`) is
+  unchanged. So there is exactly one platform boundary in the whole
+  codebase, and it is tiny.
+* The top-level `CMakeLists.txt` gained an `if(EMSCRIPTEN) ... else()`
+  branch: on web it adds `main_emscripten.cpp` to the target, sets
+  `SUFFIX ""` so Emscripten produces the `.html`/`.js`/`.wasm` triple,
+  and links `-sUSE_SDL=3 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1`.
+  ASYNCIFY is **not** enabled; the loop is plain synchronous C++ and
+  ASYNCIFY would just bloat the .wasm. On desktop the existing path
+  (SDL3.dll copy, Visual Studio generator) is preserved bit-for-bit.
+* `tests/ember_test_m8.cpp` is a tiny pure-compile-time harness
+  (`static_assert`s on the `App::step` / `App::run` /
+  `App::request_exit` signatures) that catches any future signature
+  drift before it silently breaks the web build. It also
+  **regression-tests the M8 discovery** that the M4 / M5 test runners
+  hard-code `/MDd` and therefore require the main game to be in
+  `Debug` — a fact that is now documented in their header comments.
+
+M5 — Match flow — is complete. Each fighter starts with 3 stocks; a
+KO schedules a respawn after `kRespawnDelaySeconds` (0.5s) with
+`kRespawnInvulnSeconds` (1.5s) of invulnerability; a `GAME!` banner
+shows for `kKoBannerInitialSeconds` (1.5s) and then a `P1/P2 WINS -
+PRESS R` prompt; `R` rematches via `App::step -> Match::reset`. The
+HUD (top-left P1 card, top-right P2 card) draws three stock pips in
+the player's color plus a 2x-scaled damage %; the damage % also
+floats above each fighter's head; each landed hit briefly renders a
+yellow `+` spark at the impact point for `kHitSparkFrames` (6)
+frames. All UI is rendered with a hand-rolled 4x6 monospace bitmap
+font (`src/UI/BitmapFont.cpp`) — no SDL_ttf dependency, no font
+asset to ship.
 
 M4 — AI opponent — is complete. Six FSM states, xorshift32 RNG,
 `ember::ai::Difficulty` tuning struct, headless test (14/14).
 
-M6+ covers final art, animation, audio, then the Android and
-Emscripten ports. We do not auto-start M6 without an explicit
-owner request (per orchestrator doc §34).
+M6 (art + audio + UI + polish) and M7 (Android) are deferred. We do
+not auto-start them without an explicit owner request (per
+orchestrator doc §34).
 
 ## Build & run
 
 ```bat
 :: from the repo root, in a Visual Studio "x64 Native Tools" command prompt
-cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Debug
 cmake --build build
 build\bin\EmberClash.exe
 ```
@@ -66,12 +89,33 @@ build\bin\EmberClash.exe
 - SDL3 3.2.10 is fetched at configure time via `FetchContent` - no manual
   SDL install is required.
 - All code lives in the `ember::` namespace.
+- **Debug vs Release:** keep the main game configured in `Debug`. The
+  M4 + M5 test runners hard-code `/MDd` and link against the per-file
+  `.obj` files that this Debug build produces. A Release reconfigure
+  of the main game will break the test runners with
+  `LNK2038 RuntimeLibrary mismatch` (caught and documented during M8
+  audit - see `tests/run_*_test.bat` for the rationale and the
+  rebuild-on-debug instruction in each header comment).
+- **WebAssembly build (M8):** the Emscripten target is in
+  `CMakeLists.txt` under `if(EMSCRIPTEN) ... endif()`. It compiles
+  `src/main_emscripten.cpp` instead of the desktop `src/main.cpp` and
+  links `-sUSE_SDL=3 -sALLOW_MEMORY_GROWTH=1 -sEXIT_RUNTIME=1`. ASYNCIFY
+  is intentionally not enabled. The exact commands are in the README;
+  they require the Emscripten SDK to be installed and were not
+  executed in this repo's Windows-only build environment.
 
 ## Module layout
 
 ```
 src/
   main.cpp                 SDL_main entry; constructs ember::App and runs it
+                           (desktop only - the Web build uses main_emscripten.cpp)
+  main_emscripten.cpp      Emscripten-only entry point. Compiled only when
+                           CMake is configuring with an Emscripten toolchain.
+                           Calls emscripten_set_main_loop() with a trampoline
+                           that invokes app.step(dt). The only platform #ifdef
+                           in the entire codebase lives at the boundary
+                           between main.cpp and this file.
   Core/
     App.{h,cpp}            orchestrator: SDL init, owns
                            window/renderer/input/match, drives the main loop
@@ -284,14 +328,22 @@ tests/
   run_ai_test.bat      runner script (Windows) - also lives at build/run_ai_test.bat
   ember_test_m5.cpp    M5 match-flow test (6 scenarios / 14 assertions)
   run_m5_test.bat      runner script (Windows) - also lives at build/run_m5_test.bat
+  ember_test_m8.cpp    M8 surface test: compile-time static_asserts on
+                       App::step(double) / App::run() / App::request_exit().
+                       Catches any signature drift that would silently
+                       break the Emscripten build before it ships.
+  run_m8_test.bat      runner script (Windows) - also lives at build/run_m8_test.bat
 ```
 
-The runners are invoked as `build/run_ai_test.bat` and
-`build/run_m5_test.bat` (they live under `build/` because they need
-to find the per-file `*.cpp.obj` files that CMake produces there;
-the `tests/` sources are passed in as command-line arguments). All
-test artifacts (`ember_test_*.exe`, `*.ilk`, `*.pdb`) live under
-`build/` and are gitignored.
+The runners are invoked as `build/run_ai_test.bat`,
+`build/run_m5_test.bat`, and `build/run_m8_test.bat` (they live under
+`build/` because they need to find the per-file `*.cpp.obj` files
+that CMake produces there; the `tests/` sources are passed in as
+command-line arguments). All test artifacts (`ember_test_*.exe`,
+`*.ilk`, `*.pdb`) live under `build/` and are gitignored. The M8
+runner deliberately does **not** link against the per-file `.obj`
+files — it is a header-only test that just verifies the public
+surface of `App` has not drifted.
 
 ### AI conventions (M4)
 

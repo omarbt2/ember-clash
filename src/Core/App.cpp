@@ -60,31 +60,37 @@ int App::run() {
     }
 
     running_ = true;
-    int exit_code = 0;
 
     while (running_) {
         clock_->update();
-        const double dt = clock_->delta_seconds();
-
-        handle_events();
-
-        if (input_->quit_requested()) {
-            running_ = false;
-        }
-
-        // M5: R rematches when the previous match is over. We poll after
-        // handle_events so a single press triggers a single rematch.
-        if (match_->phase() == Match::Phase::MatchOver
-            && input_->pressed(SDLK_R)) {
-            match_->reset();
-        }
-
-        update(dt);
-        render();
+        step(clock_->delta_seconds());
     }
 
     shutdown();
-    return exit_code;
+    return 0;
+}
+
+void App::step(double dt) {
+    handle_events();
+
+    if (input_->quit_requested()) {
+        running_ = false;
+        return;
+    }
+
+    // M5: R rematches when the previous match is over. We poll after
+    // handle_events so a single press triggers a single rematch.
+    if (match_->phase() == Match::Phase::MatchOver
+        && input_->pressed(SDLK_R)) {
+        match_->reset();
+    }
+
+    update(dt);
+    render();
+}
+
+void App::request_exit() {
+    running_ = false;
 }
 
 void App::handle_events() {

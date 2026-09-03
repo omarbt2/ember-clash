@@ -24,9 +24,23 @@ public:
     // Initialize subsystems. Returns false on any failure (already logged).
     bool initialize();
 
-    // Enters the main loop until quit is requested or a fatal error occurs.
-    // Returns the process exit code.
+    // Desktop: enters the blocking main loop until quit is requested or a
+    // fatal error occurs. Returns the process exit code.
+    //
+    // Web (Emscripten): does not block. Initializes the loop and returns 0;
+    // the per-frame work is driven by emscripten_set_main_loop(), which calls
+    // step() from a separate translation unit. The blocking form is
+    // intentionally not used on the web - browsers cannot block.
     int run();
+
+    // Single per-tick step: handle_events + update + render. The argument
+    // is the desired frame delta in seconds; the Emscripten adapter passes
+    // the desired fixed step, the desktop run() uses Clock::delta_seconds().
+    void step(double dt);
+
+    // Politely request the desktop loop to exit at the next iteration.
+    // (No-op for the Emscripten adapter; the web page simply goes away.)
+    void request_exit();
 
 private:
     void shutdown();

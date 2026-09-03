@@ -1,5 +1,6 @@
 # Build directories
 build/
+build-*/
 out/
 cmake-build-*/
 
@@ -59,3 +60,22 @@ desktop.ini
 # SDL3 fetched sources (FetchContent cache)
 _third_party/
 _external/
+
+# Emscripten build artifacts (M8). The build-web/ tree mirrors build/ but
+# is produced by `emcmake cmake -B build-web`. The Emscripten output
+# (`EmberClash.html`, `EmberClash.js`, `EmberClash.wasm`, the .worker.js,
+# any *.mem file) is rebuilt from sources on every run, so we don't
+# keep it under version control. We DO keep the checked-in web shell
+# under `web/` (the static `index.html` and any hand-written assets) -
+# see the whitelist lines at the bottom of this block.
+build-web/
+*.html
+*.wasm
+*.mem
+# Whitelist: any HTML / JS / CSS inside the checked-in web/ folder is
+# allowed (and is the only place we keep .html / .js / .wasm sources).
+!web/
+!web/**/*.html
+!web/**/*.js
+!web/**/*.css
+!web/**/*.wasm

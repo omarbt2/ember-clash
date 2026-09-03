@@ -87,31 +87,68 @@ set(EMBER_SOURCES
 
 add_executable(EmberClash ${EMBER_SOURCES})
 
-target_include_directories(EmberClash PRIVATE
-    ${CMAKE_SOURCE_DIR}/src
-)
-
-target_link_libraries(EmberClash PRIVATE
-    SDL3::SDL3
-)
-
-# Place runtime artifacts in a dedicated directory so we can ship the DLL
-# alongside the executable.
-set_target_properties(EmberClash PROPERTIES
-    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
-)
-
-# On Windows, copy SDL3.dll next to the executable after every successful
-# link of the main target (Debug and Release configurations both need it).
-if(WIN32)
-    add_custom_command(
-        TARGET EmberClash POST_BUILD
-        COMMAND ${CMAKE_COMMAND}
-            -DSDL3_DLL=$<TARGET_FILE:SDL3::SDL3>
-            -DAPP_DIR=$<TARGET_FILE_DIR:EmberClash>
-            -P ${CMAKE_SOURCE_DIR}/cmake/CopySDL3DLL.cmake
-        COMMENT "Copying SDL3.dll next to EmberClash.exe"
+# -----------------------------------------------------------------------------
+# Platform-specific source and build configuration.
+# -----------------------------------------------------------------------------
+# Emscripten: swap the desktop entry point for the web entry point. The web
+# entry calls App::step() from emscripten_set_main_loop(); see
+# src/main_emscripten.cpp. No other gameplay source is platform-specific.
+if(EMSCRIPTEN)
+    target_sources(EmberClash PRIVATE src/main_emscripten.cpp)
+    # Replace the desktop .exe output with the Emscripten triple
+    # (EmberClash.html + EmberClash.js + EmberClash.wasm). The empty
+    # SUFFIX is what tells CMake to use the Emscripten output layout
+    # (.html as the primary artifact, .js / .wasm as sidecars) instead
+    # of the default .exe. We do not set RUNTIME_OUTPUT_NAME because
+    # that would clobber all three artifacts.
+    set_target_properties(EmberClash PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY  ${CMAKE_BINARY_DIR}/bin
+        SUFFIX                    ""
     )
+    # Required Emscripten link flags for SDL3 + browser:
+    #   -sUSE_SDL=3     Tells emcc to link against the SDL3 port; this
+    #                   pulls in <emscripten.h> glue, the HTML5 shell, and
+    #                   the JS <-> SDL event bridge.
+    #   -sALLOW_MEMORY_GROWTH=1  Lets the WebAssembly heap grow on demand
+    #                   instead of failing on a fixed-size bump allocator.
+    #   -sEXIT_RUNTIME=1 Ensures SDL_Quit() and friends actually run on
+    #                   page close (otherwise the browser just kills the
+    #                   worker without unwinding the WASM heap).
+    # We deliberately do NOT enable ASYNCIFY (-sASYNCIFY): the gameplay
+    # loop is plain synchronous C++ that never blocks on a JS callback,
+    # so the ASYNCIFY code-size cost would buy us nothing.
+    target_link_options(EmberClash PRIVATE
+        "-sUSE_SDL=3"
+        "-sALLOW_MEMORY_GROWTH=1"
+        "-sEXIT_RUNTIME=1"
+    )
+    # Note: nothing in src/Core/Time.cpp needs an Emscripten-specific clock.
+    # SDL_GetPerformanceCounter maps to emscripten_get_now() under the hood.
+else()
+    target_include_directories(EmberClash PRIVATE
+        ${CMAKE_SOURCE_DIR}/src
+    )
+    target_link_libraries(EmberClash PRIVATE
+        SDL3::SDL3
+    )
+    # Place runtime artifacts in a dedicated directory so we can ship the DLL
+    # alongside the executable.
+    set_target_properties(EmberClash PROPERTIES
+        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+
+    # On Windows, copy SDL3.dll next to the executable after every successful
+    # link of the main target (Debug and Release configurations both need it).
+    if(WIN32)
+        add_custom_command(
+            TARGET EmberClash POST_BUILD
+            COMMAND ${CMAKE_COMMAND}
+                -DSDL3_DLL=$<TARGET_FILE:SDL3::SDL3>
+                -DAPP_DIR=$<TARGET_FILE_DIR:EmberClash>
+                -P ${CMAKE_SOURCE_DIR}/cmake/CopySDL3DLL.cmake
+            COMMENT "Copying SDL3.dll next to EmberClash.exe"
+        )
+    endif()
 endif()
 
 # -----------------------------------------------------------------------------
