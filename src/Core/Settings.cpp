@@ -81,6 +81,16 @@ void Settings::reset_to_defaults() {
     std::memcpy(p2_scheme.data(), keyboard, std::strlen(keyboard));
     std::memset(ai_difficulty.data(), 0, ai_difficulty.size());
     std::memcpy(ai_difficulty.data(), standard, std::strlen(standard));
+
+    // P1 default bindings. The integers are the SDL_Keycode values
+    // for A / D / W / S / J / K / L. We hardcode the literals here
+    // (rather than including <SDL3/SDL_keycode.h>) so Settings
+    // stays a leaf module with no SDL dependency. The mapping
+    // from index to action is:
+    //   0 = move_left,  1 = move_right,
+    //   2 = jump,       3 = fast_fall,
+    //   4 = jab,        5 = ftilt,       6 = nair
+    p1_bindings = {{97, 100, 119, 115, 106, 107, 108}};
 }
 
 bool Settings::operator==(const Settings& other) const {
@@ -96,7 +106,8 @@ bool Settings::operator==(const Settings& other) const {
         && color_blind_palette == other.color_blind_palette
         && p1_scheme      == other.p1_scheme
         && p2_scheme      == other.p2_scheme
-        && ai_difficulty  == other.ai_difficulty;
+        && ai_difficulty  == other.ai_difficulty
+        && p1_bindings    == other.p1_bindings;
 }
 
 Settings load_settings_from_file(const std::string& path) {
@@ -130,6 +141,18 @@ Settings load_settings_from_file(const std::string& path) {
         else if (read_str (t, "p1_scheme",      s.p1_scheme))      {}
         else if (read_str (t, "p2_scheme",      s.p2_scheme))      {}
         else if (read_str (t, "ai_difficulty",  s.ai_difficulty))  {}
+        // P1 key bindings. Each is a 32-bit integer (the raw
+        // SDL_Keycode value). Out-of-range values are clamped to
+        // 0 (SDLK_UNKNOWN) below so a corrupted file cannot leave
+        // the player with a key outside the InputManager's 0..511
+        // slot table.
+        else if (read_int (t, "p1_move_left",   s.p1_bindings[0])) {}
+        else if (read_int (t, "p1_move_right",  s.p1_bindings[1])) {}
+        else if (read_int (t, "p1_jump",        s.p1_bindings[2])) {}
+        else if (read_int (t, "p1_fast_fall",   s.p1_bindings[3])) {}
+        else if (read_int (t, "p1_jab",         s.p1_bindings[4])) {}
+        else if (read_int (t, "p1_ftilt",       s.p1_bindings[5])) {}
+        else if (read_int (t, "p1_nair",        s.p1_bindings[6])) {}
         // Unknown key: silently ignored.
     }
 
@@ -143,6 +166,16 @@ Settings load_settings_from_file(const std::string& path) {
     if (s.music_volume > 100)  s.music_volume = 100;
     if (s.render_scale < 1)    s.render_scale = 1;
     if (s.render_scale > 4)    s.render_scale = 4;
+    // P1 key bindings: the InputManager tracks 512 slots (0..511).
+    // A negative value or value beyond 511 is a corrupted file
+    // (e.g. a typo) - clamp to 0 = SDLK_UNKNOWN so the slot is
+    // silently unbound rather than indexing out of bounds. The
+    // remap UI also rejects out-of-range keycodes at capture time.
+    for (std::size_t i = 0; i < s.p1_bindings.size(); ++i) {
+        if (s.p1_bindings[i] < 0 || s.p1_bindings[i] > 511) {
+            s.p1_bindings[i] = 0;
+        }
+    }
 
     return s;
 }
@@ -167,6 +200,13 @@ bool save_settings_to_file(const std::string& path, const Settings& s) {
     write_str (o, "p1_scheme",      s.p1_scheme);
     write_str (o, "p2_scheme",      s.p2_scheme);
     write_str (o, "ai_difficulty",  s.ai_difficulty);
+    write_int (o, "p1_move_left",   s.p1_bindings[0]);
+    write_int (o, "p1_move_right",  s.p1_bindings[1]);
+    write_int (o, "p1_jump",        s.p1_bindings[2]);
+    write_int (o, "p1_fast_fall",   s.p1_bindings[3]);
+    write_int (o, "p1_jab",         s.p1_bindings[4]);
+    write_int (o, "p1_ftilt",       s.p1_bindings[5]);
+    write_int (o, "p1_nair",        s.p1_bindings[6]);
 
     const std::string tmp = path + ".tmp";
     {

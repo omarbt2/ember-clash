@@ -90,6 +90,22 @@ bool InputManager::any_held() const {
     return any_current_;
 }
 
+SDL_Keycode InputManager::any_pressed_key() const {
+    // Find the lowest-index slot that transitioned from up to
+    // down on the most recent update(). Returning the lowest
+    // index is deterministic and matches the order in which
+    // the keys appear in `current_`; the remap UI does not
+    // care which one is reported first, only that the press
+    // is consumed and the next call returns 0 until another
+    // transition happens.
+    for (int i = 0; i < kMaxKeys; ++i) {
+        if (current_[i] && !previous_[i]) {
+            return static_cast<SDL_Keycode>(i);
+        }
+    }
+    return 0;
+}
+
 // -----------------------------------------------------------------
 // Menu nav predicates. We compute the OR over the keyboard edge
 // transitions; the gamepad equivalent lives in Gamepad.h and is

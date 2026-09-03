@@ -7,6 +7,7 @@
 #include "Gameplay/AiConfig.h"
 #include "Gameplay/AiController.h"
 #include "Gameplay/ArtConfig.h"
+#include "Gameplay/InputMap.h"
 #include "Gameplay/Match.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/Window.h"
@@ -85,6 +86,17 @@ bool App::initialize() {
     // already in the correct palette. The flag is consulted at
     // Fighter construction time.
     art::set_color_blind(settings_.color_blind_palette);
+
+    // M13: push the saved P1 key bindings into the live
+    // InputMap. The InputMap's static storage starts at the
+    // compile-time defaults; without this call a user who
+    // rebinds A to a non-default key would still see the
+    // fighter responding to the old key on the very first
+    // frame. The apply function is a no-op if the array is
+    // empty (it isn't, but the guard makes the intent clear).
+    InputMap::apply_p1_from_ints(
+        settings_.p1_bindings.data(),
+        settings_.p1_bindings.size());
 
     // Create the first match instance. The menu starts in
     // kTitle and gates whether this match is allowed to tick.
@@ -286,6 +298,28 @@ void App::handle_menu_action() {
             const int s = settings_.render_scale;
             const float sf = static_cast<float>(s < 1 ? 1 : s);
             if (renderer_) renderer_->set_render_scale(sf);
+            break;
+        }
+        case Menu::Action::kApplyRemap: {
+            // M13: the player committed a key rebind in the
+            // remap-capture sub-state. The menu stored the slot
+            // index and keycode; we copy them into the live
+            // Settings, push the new bindings into InputMap so
+            // the next sampled frame uses them, mark the
+            // settings file dirty, and immediately flush so
+            // a crash before the next menu close does not lose
+            // the rebind.
+            const int slot = menu_->pending_remap_slot();
+            const int kc   = menu_->pending_remap_keycode();
+            if (slot >= 0 && slot < 7 && kc >= 0 && kc <= 511) {
+                settings_.p1_bindings[static_cast<std::size_t>(slot)] =
+                    static_cast<std::int32_t>(kc);
+                InputMap::apply_p1_from_ints(
+                    settings_.p1_bindings.data(),
+                    settings_.p1_bindings.size());
+                settings_dirty_ = true;
+                flush_settings();
+            }
             break;
         }
         case Menu::Action::kRequestQuit:

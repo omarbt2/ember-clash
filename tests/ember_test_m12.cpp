@@ -11,10 +11,13 @@
 #include "Gameplay/AiConfig.h"
 #include "Gameplay/AiController.h"
 #include "Gameplay/ArtConfig.h"
+#include "Gameplay/InputMap.h"
 #include "Gameplay/Match.h"
 #include "Input/Gamepad.h"
 #include "Input/InputManager.h"
 #include "UI/Menu.h"
+
+#include <SDL3/SDL_keycode.h>
 
 #include <cstdio>
 #include <cstring>
@@ -472,6 +475,160 @@ int main() {
     // The section 8 test above is the canonical accessibility test;
     // we keep this slot so future sections can be inserted in
     // numeric order without renumbering.
+
+    // ---- 12. M13: P1 key remap ------------------------------------------
+    // The P1 rebind UI introduces a runtime-mutable KeyBindings
+    // table in InputMap and a persistent p1_bindings array in
+    // Settings. These checks verify the data-flow contract end
+    // to end without opening a window.
+    section("M13: P1 key remap");
+    {
+        using namespace ember;
+        // 1) KeyBindings defaults are the documented WASD + JKL set.
+        {
+            KeyBindings b;
+            check(b.move_left  == SDLK_A,   "KeyBindings default move_left == A");
+            check(b.move_right == SDLK_D,   "KeyBindings default move_right == D");
+            check(b.jump       == SDLK_W,   "KeyBindings default jump == W");
+            check(b.fast_fall  == SDLK_S,   "KeyBindings default fast_fall == S");
+            check(b.jab        == SDLK_J,   "KeyBindings default jab == J");
+            check(b.ftilt      == SDLK_K,   "KeyBindings default ftilt == K");
+            check(b.nair       == SDLK_L,   "KeyBindings default nair == L");
+        }
+
+        // 2) KeyBindings equality is value-wise.
+        {
+            KeyBindings a;
+            KeyBindings b = a;
+            check(a == b, "KeyBindings value-equality works");
+            b.jab = SDLK_F;
+            check(a != b, "KeyBindings inequality detected after change");
+        }
+
+        // 3) KeyBindings::slot() returns the right address for each
+        //    of the 7 actions, and nullptr for out-of-range.
+        {
+            KeyBindings b;
+            check(b.slot(0) == &b.move_left,  "slot(0) -> move_left");
+            check(b.slot(1) == &b.move_right, "slot(1) -> move_right");
+            check(b.slot(2) == &b.jump,       "slot(2) -> jump");
+            check(b.slot(3) == &b.fast_fall,  "slot(3) -> fast_fall");
+            check(b.slot(4) == &b.jab,        "slot(4) -> jab");
+            check(b.slot(5) == &b.ftilt,      "slot(5) -> ftilt");
+            check(b.slot(6) == &b.nair,       "slot(6) -> nair");
+            check(b.slot(7) == nullptr,       "slot(7) (out of range) is nullptr");
+            check(b.slot(-1) == nullptr,      "slot(-1) (out of range) is nullptr");
+            // Mutating through slot() is observable via the
+            // struct (no defensive copy).
+            *b.slot(4) = SDLK_F;
+            check(b.jab == SDLK_F, "slot() mutation is visible on the struct");
+        }
+
+        // 4) InputMap::apply_p1_from_ints copies a 7-int buffer
+        //    into the live KeyBindings. We mutate the live
+        //    bindings, then restore them so other tests in this
+        //    binary do not see the test-time values.
+        {
+            KeyBindings& live = InputMap::p1_bindings();
+            const SDL_Keycode saved_move_left = live.move_left;
+            const SDL_Keycode saved_jab       = live.jab;
+            const std::int32_t buf[7] = {
+                SDLK_Q, SDLK_E, SDLK_R, SDLK_T,
+                SDLK_F, SDLK_G, SDLK_V
+            };
+            InputMap::apply_p1_from_ints(buf, 7);
+            check(live.move_left  == SDLK_Q, "apply moved move_left to Q");
+            check(live.move_right == SDLK_E, "apply moved move_right to E");
+            check(live.jump       == SDLK_R, "apply moved jump to R");
+            check(live.fast_fall  == SDLK_T, "apply moved fast_fall to T");
+            check(live.jab        == SDLK_F, "apply moved jab to F");
+            check(live.ftilt      == SDLK_G, "apply moved ftilt to G");
+            check(live.nair       == SDLK_V, "apply moved nair to V");
+            // Restore the defaults so a subsequent test in the
+            // same process does not inherit our mutation.
+            live.move_left  = saved_move_left;
+            live.jab        = saved_jab;
+            const std::int32_t defaults[7] = {
+                SDLK_A, SDLK_D, SDLK_W, SDLK_S,
+                SDLK_J, SDLK_K, SDLK_L
+            };
+            InputMap::apply_p1_from_ints(defaults, 7);
+        }
+
+        // 5) apply_p1_from_ints is null-safe (defensive).
+        {
+            // Passing nullptr must NOT crash. The original
+            // bindings survive the call. (We capture the
+            // jab beforehand and compare afterwards.)
+            KeyBindings& live = InputMap::p1_bindings();
+            const SDL_Keycode saved = live.jab;
+            InputMap::apply_p1_from_ints(nullptr, 7);
+            check(live.jab == saved,
+                  "apply with nullptr is a no-op (jab unchanged)");
+        }
+
+        // 6) Settings::p1_bindings round-trips through save/load.
+        {
+            Settings s = Settings();
+            s.p1_bindings = {{SDLK_Q, SDLK_E, SDLK_R, SDLK_T,
+                              SDLK_F, SDLK_G, SDLK_V}};
+            const std::string path = "ember_test_m12_remap.ini";
+            save_settings_to_file(path, s);
+            const Settings r = load_settings_from_file(path);
+            check(r.p1_bindings[0] == SDLK_Q, "p1 move_left round-trips Q");
+            check(r.p1_bindings[1] == SDLK_E, "p1 move_right round-trips E");
+            check(r.p1_bindings[2] == SDLK_R, "p1 jump round-trips R");
+            check(r.p1_bindings[3] == SDLK_T, "p1 fast_fall round-trips T");
+            check(r.p1_bindings[4] == SDLK_F, "p1 jab round-trips F");
+            check(r.p1_bindings[5] == SDLK_G, "p1 ftilt round-trips G");
+            check(r.p1_bindings[6] == SDLK_V, "p1 nair round-trips V");
+            std::remove(path.c_str());
+        }
+
+        // 7) Settings parser clamps out-of-range p1_bindings to 0
+        //    so a corrupt file cannot leave the player with a
+        //    keycode outside the InputManager's 0..511 slot
+        //    table.
+        {
+            Settings s = Settings();
+            s.p1_bindings = {{-1, 999, 700, 5, 4, 3, 2}};
+            const std::string path = "ember_test_m12_remap_oor.ini";
+            save_settings_to_file(path, s);
+            const Settings r = load_settings_from_file(path);
+            check(r.p1_bindings[0] == 0, "p1_bindings negative -> 0");
+            check(r.p1_bindings[1] == 0, "p1_bindings > 511 -> 0");
+            check(r.p1_bindings[2] == 0, "p1_bindings > 511 -> 0");
+            check(r.p1_bindings[3] == 5, "p1_bindings in range survives");
+            check(r.p1_bindings[4] == 4, "p1_bindings in range survives");
+            check(r.p1_bindings[5] == 3, "p1_bindings in range survives");
+            check(r.p1_bindings[6] == 2, "p1_bindings in range survives");
+            std::remove(path.c_str());
+        }
+
+        // 8) InputMap::key_name writes a short label and
+        //    null-terminates even for long SDL names.
+        {
+            char buf[8];
+            // Printable ASCII = single character.
+            const char* n1 = InputMap::key_name(SDLK_A, buf, sizeof(buf));
+            check(n1 == buf, "key_name returns the out pointer");
+            check(std::strcmp(buf, "A") == 0, "key_name(A) -> \"A\"");
+            // SDLK_UNKNOWN -> "---" (not the empty string).
+            char buf2[8];
+            InputMap::key_name(0, buf2, sizeof(buf2));
+            check(std::strcmp(buf2, "---") == 0,
+                  "key_name(SDLK_UNKNOWN) -> \"---\"");
+            // Truncation safety: a 4-byte buffer cannot hold
+            // a long SDL name without truncation, but it must
+            // always be null-terminated.
+            char buf3[4] = {'X','X','X','X'};
+            InputMap::key_name(SDLK_SPACE, buf3, sizeof(buf3));
+            check(buf3[sizeof(buf3) - 1] == '\0',
+                  "key_name null-terminates a 4-byte buffer");
+            check(static_cast<int>(std::strlen(buf3)) <= 3,
+                  "key_name truncates to fit");
+        }
+    }
 
     std::printf("\n=== M12-AUDIT ===\n");
     std::printf("M12-AUDIT: %d pass, %d fail\n", g_passed, g_total - g_passed);

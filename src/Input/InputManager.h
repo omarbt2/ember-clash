@@ -36,6 +36,13 @@ public:
     // "any input to dismiss a menu" screens.
     bool any_held() const;
 
+    // Returns the first keycode whose state transitioned from
+    // up to down on the most recent update(), or 0 if no key
+    // is newly down. Used by the M13 remap UI to capture a
+    // single keypress. Edge-triggered: the function reports
+    // the key only on the frame the transition happens.
+    SDL_Keycode any_pressed_key() const;
+
     // -----------------------------------------------------------------
     // M12 menu-navigation predicates. These merge keyboard + gamepad
     // into a single "menu input" surface so the menu code does not

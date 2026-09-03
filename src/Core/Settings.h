@@ -67,6 +67,17 @@ struct Settings {
     // Matched against ai::kEasy / ai::kStandard / ai::kHard in AiConfig.h.
     std::array<char, 16> ai_difficulty{"standard"};
 
+    // P1 key bindings. Stored as raw 32-bit integers (SDL_Keycode
+    // values) so Settings does not need to pull in the SDL header.
+    // The order matches KeyBindings in Gameplay/InputMap.h:
+    //   0 = move_left, 1 = move_right, 2 = jump, 3 = fast_fall,
+    //   4 = jab, 5 = ftilt, 6 = nair.
+    // The defaults are the original WASD + Space + JKL set; an
+    // out-of-range integer (e.g. 0 = SDLK_UNKNOWN) is replaced with
+    // the corresponding default at load time so a corrupt file
+    // cannot leave the player with no input.
+    std::array<std::int32_t, 7> p1_bindings{0};
+
     // Reset everything to compile-time defaults. Used by the
     // "Restore defaults" button on the settings screen and by the
     // unit tests.

@@ -53,6 +53,10 @@ public:
         kSettings,
         kControls,
         kQuitConfirm,
+        // M13: rebind a single P1 key. Entered when the user
+        // confirms one of the P1 BIND rows in kSettings; left
+        // when they press a key (commit) or ESC (cancel).
+        kRemapCapture,
     };
 
     // The Menu emits one of these each frame (or kNone if the
@@ -69,6 +73,11 @@ public:
         kRequestQuit,
         kToggleFullscreen,
         kApplyRenderScale,
+        // M13: the P1 remap UI has committed a single key
+        // change. The accompanying slot index and keycode are
+        // in pending_remap_slot_ / pending_remap_keycode_;
+        // App applies the change to Settings and re-flushes.
+        kApplyRemap,
     };
 
     // Events the App can push into the menu.
@@ -139,6 +148,13 @@ public:
     int  selected_index_for_test() const { return selected_index_; }
     void set_settings_for_test(Settings* s) { settings_ = s; }
 
+    // M13: pending remap. The menu fills these when the
+    // player commits a key; App reads them on the next
+    // frame's consume_action loop, writes them into the
+    // Settings struct, and clears the pending state.
+    int  pending_remap_slot()    const { return pending_remap_slot_; }
+    int  pending_remap_keycode() const { return pending_remap_keycode_; }
+
 private:
     // State-local helpers.
     void render_title    (Renderer& r) const;
@@ -148,6 +164,7 @@ private:
     void render_settings (Renderer& r) const;
     void render_controls (Renderer& r) const;
     void render_quit_confirm(Renderer& r) const;
+    void render_remap_capture(Renderer& r) const;
 
     // Entry list for the current state. Recomputed on every
     // state entry and on every settings edit so the right-hand
@@ -200,6 +217,31 @@ private:
     // state, where left/right adjust the value instead of
     // navigating the list.
     bool editing_value_{false};
+
+    // -----------------------------------------------------------------
+    // M13 remap-capture sub-state.
+    //
+    // When the user confirms one of the P1 BIND rows in
+    // kSettings, the menu transitions to kRemapCapture and
+    // records which slot (0..6, see KeyBindings::kActionCount)
+    // is being edited. The next key-down commits the new
+    // keycode; ESC cancels. The commit emits Action::kApplyRemap
+    // with the slot + keycode so App can write the change back
+    // to Settings.
+    //
+    // remap_capture_active_ is true while waiting for a keypress
+    // and used by the test harness to inspect the state machine.
+    // remap_pulse_ticks_ drives the "PRESS A KEY" prompt pulse
+    // so the screen feels alive (a static prompt is easy to miss
+    // when the player has just hit confirm).
+    // -----------------------------------------------------------------
+    bool remap_capture_active_{false};
+    int  remap_slot_{-1};
+    int  remap_pulse_ticks_{0};
+    // Public: read-only access for App when handling
+    // Action::kApplyRemap.
+    int  pending_remap_slot_{-1};
+    int  pending_remap_keycode_{0};
 };
 
 } // namespace ember

@@ -7,6 +7,8 @@
 #include "Input/InputManager.h"
 #include "UI/BitmapFont.h"
 
+#include <SDL3/SDL_keycode.h>
+
 #include <algorithm>
 #include <cstring>
 #include <string>
@@ -184,6 +186,61 @@ void Menu::rebuild_settings_entries() {
         settings_entries_.push_back(mkv("RENDER SCALE",
             (std::string("x") + std::to_string(settings_->render_scale)).c_str(),
             Action::kApplyRenderScale));
+        // M13: P1 rebindable keys. The label and value are
+        // read from the live settings struct so the user can
+        // see the active binding change as they rebind. The
+        // confirm handler in navigate() translates one of
+        // these indices into the remap-capture sub-state.
+        char kbuf[16];
+        for (int i = 0; i < 7; ++i) {
+            const char* lbl = "P1 BIND";
+            switch (i) {
+                case 0: lbl = "P1 MOVE LEFT";   break;
+                case 1: lbl = "P1 MOVE RIGHT";  break;
+                case 2: lbl = "P1 JUMP";        break;
+                case 3: lbl = "P1 FAST FALL";   break;
+                case 4: lbl = "P1 JAB";         break;
+                case 5: lbl = "P1 FTILT";       break;
+                case 6: lbl = "P1 NAIR";        break;
+            }
+            const int kc = settings_->p1_bindings[i];
+            // The label is the action; the value is the current
+            // key (or "---" when SDLK_UNKNOWN). We use a small
+            // inline formatter so we don't pull InputMap into
+            // Menu (Menu is in UI; InputMap is in Gameplay).
+            // The byte buffer is enough for "Keypad 0" + NUL.
+            if (kc <= 0) {
+                settings_entries_.push_back(mkv(lbl, "---", Action::kNone));
+            } else if (kc >= 32 && kc < 127) {
+                // Printable ASCII = single character label.
+                kbuf[0] = static_cast<char>(kc);
+                kbuf[1] = '\0';
+                settings_entries_.push_back(mkv(lbl, kbuf, Action::kNone));
+            } else {
+                // Named keys: a tiny table covers everything we
+                // care about. SDL_GetKeyName would be more
+                // general but pulls SDL into UI for a 7-row
+                // table; the cost/benefit favours a literal
+                // table for the keys V1.0 P1 actually binds.
+                const char* name = "KEY";
+                switch (kc) {
+                    case 1073741906: name = "UP";    break;  // SDLK_UP
+                    case 1073741905: name = "DOWN";  break;  // SDLK_DOWN
+                    case 1073741904: name = "LEFT";  break;  // SDLK_LEFT
+                    case 1073741903: name = "RIGHT"; break;  // SDLK_RIGHT
+                    case 1073741885: name = "SPACE"; break;  // SDLK_SPACE
+                    case 1073741882: name = "TAB";   break;  // SDLK_TAB
+                    case 1073741893: name = "LSHIFT";break;  // SDLK_LSHIFT
+                    case 1073741894: name = "RSHIFT";break;  // SDLK_RSHIFT
+                    case 1073741898: name = "LCTRL"; break;  // SDLK_LCTRL
+                    case 1073741899: name = "RCTRL"; break;  // SDLK_RCTRL
+                    case 1073741908: name = "BACKSP";break;  // SDLK_BACKSPACE
+                    case 1073741911: name = "ESC";   break;  // SDLK_ESCAPE
+                    case 1073741912: name = "RETURN";break;  // SDLK_RETURN
+                }
+                settings_entries_.push_back(mkv(lbl, name, Action::kNone));
+            }
+        }
         settings_entries_.push_back(mk ("RESTORE DEFAULTS",
             Action::kRestoreDefaultSettings));
         settings_entries_.push_back(mk ("BACK",
@@ -203,6 +260,7 @@ const std::vector<Menu::Entry>& Menu::entries_for_state(State s) const {
         case State::kTitle:       return main_entries_;  // unused; title is bespoke
         case State::kPlay:        return main_entries_;  // unused; dormant
         case State::kQuitConfirm: return main_entries_;  // unused; bespoke
+        case State::kRemapCapture:return main_entries_;  // unused; bespoke
     }
     return main_entries_;
 }
@@ -326,8 +384,23 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     settings_->render_scale = (settings_->render_scale % 4) + 1;
                     break;
                 }
-                case 11: settings_->reset_to_defaults(); break;
-                case 12: {
+                case 11: case 12: case 13: case 14:
+                case 15: case 16: case 17: {
+                    // M13: P1 rebind. selected_index_ - 11 is the
+                    // 0..6 slot index into KeyBindings. The menu
+                    // drops into the kRemapCapture sub-state and
+                    // waits for the next key-down to commit. The
+                    // action we emit is kNone because the remap
+                    // is committed later (by a kApplyRemap
+                    // action) once a key is captured.
+                    remap_slot_ = selected_index_ - 11;
+                    remap_capture_active_ = true;
+                    state_ = State::kRemapCapture;
+                    audio.play(SfxId::MenuConfirm);
+                    return Action::kNone;
+                }
+                case 18: settings_->reset_to_defaults(); break;
+                case 19: {
                     // BACK row
                     pending_action_ = Action::kSaveSettings;
                     state_ = State::kMain;
@@ -336,7 +409,7 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     return Action::kNone;
                 }
             }
-            if (selected_index_ < 11) {
+            if (selected_index_ < 18) {
                 audio.play(SfxId::MenuConfirm);
             }
             rebuild_settings_entries();
@@ -479,6 +552,67 @@ Menu::State Menu::update(const InputManager& input, const Gamepad& pad,
             state_ = State::kMain;
             selected_index_ = 0;
             audio.play(SfxId::MenuConfirm);
+        }
+        return state_;
+    }
+
+    // -----------------------------------------------------------------
+    // M13 remap-capture sub-state. We block normal navigation
+    // here; the only meaningful inputs are:
+    //   - a new key-down: commit that keycode to the slot
+    //     and emit kApplyRemap for App to flush to disk.
+    //   - ESC: cancel and return to kSettings.
+    //   - any other key: ignored. Gamepad input is also
+    //     ignored so the player does not accidentally bind a
+    //     stick direction to a fighter action (gamepad binds
+    //     are a future feature).
+    // -----------------------------------------------------------------
+    if (state_ == State::kRemapCapture) {
+        ++remap_pulse_ticks_;
+        if (input.menu_cancel() || pad.cancel()) {
+            // Cancel: leave the slot untouched and pop back
+            // to the settings list. The player is left on the
+            // same row they were editing.
+            audio.play(SfxId::MenuCancel);
+            remap_capture_active_ = false;
+            remap_slot_ = -1;
+            remap_pulse_ticks_ = 0;
+            state_ = State::kSettings;
+            // Restore selection to the original bind row so
+            // the cursor doesn't jump.
+            selected_index_ = 11;  // first bind row
+            return state_;
+        }
+        const SDL_Keycode k = input.any_pressed_key();
+        if (k != 0) {
+            // Commit. We reject pure-modifier keys (Shift, Ctrl,
+            // Alt) because binding a fighter action to a
+            // modifier would make the modifier unusable for
+            // its real purpose (Shift+letter for uppercase, etc).
+            // Modifiers are SDLK_LSHIFT .. SDLK_RGUI.
+            if (k != SDLK_LSHIFT && k != SDLK_RSHIFT &&
+                k != SDLK_LCTRL && k != SDLK_RCTRL &&
+                k != SDLK_LALT  && k != SDLK_RALT  &&
+                k != SDLK_LGUI  && k != SDLK_RGUI) {
+                if (remap_slot_ >= 0 && remap_slot_ < 7) {
+                    pending_remap_slot_ = remap_slot_;
+                    pending_remap_keycode_ = static_cast<int>(k);
+                    pending_action_ = Action::kApplyRemap;
+                }
+                audio.play(SfxId::MenuConfirm);
+            } else {
+                // Modifier-only: treat as cancel-by-mistake.
+                audio.play(SfxId::MenuBack);
+            }
+            remap_capture_active_ = false;
+            remap_slot_ = -1;
+            remap_pulse_ticks_ = 0;
+            state_ = State::kSettings;
+            // The selection will be re-set by App when it
+            // applies the remap. For now, snap to the first
+            // bind row so the player can see the new value.
+            selected_index_ = 11;
+            return state_;
         }
         return state_;
     }
@@ -637,6 +771,45 @@ void Menu::render_controls(Renderer& r) const {
     draw_text_centered(r, kHintY, "ESC / GAMEPAD B: BACK", kHintColor);
 }
 
+void Menu::render_remap_capture(Renderer& r) const {
+    // Translucent background so the player can still see the
+    // settings list behind the prompt (useful for spotting the
+    // row they are editing). The "PRESS A KEY" line pulses so
+    // the screen feels alive; a static prompt is easy to miss
+    // when the user has just pressed confirm.
+    r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
+                        static_cast<float>(kScreenH)}, kBgColor);
+    draw_text_centered(r, 220, "REBIND", kTitleColor);
+
+    // The slot index identifies which action is being edited.
+    // The label is reconstructed here so the UI does not need
+    // to keep a separate "currently editing" string.
+    const char* action_name = "?";
+    switch (remap_slot_) {
+        case 0:  action_name = "MOVE LEFT";   break;
+        case 1:  action_name = "MOVE RIGHT";  break;
+        case 2:  action_name = "JUMP";        break;
+        case 3:  action_name = "FAST FALL";   break;
+        case 4:  action_name = "JAB";         break;
+        case 5:  action_name = "FORWARD TILT";break;
+        case 6:  action_name = "NEUTRAL AIR"; break;
+    }
+    const std::string line = std::string("P1 ") + action_name;
+    draw_text_centered(r, 300, line, config::kHudTextColor);
+
+    // Pulse the prompt.
+    const int period = 30;
+    const int phase  = remap_pulse_ticks_ % period;
+    const int bright = (phase < period / 2) ? phase : (period - phase);
+    const config::Color prompt {
+        static_cast<std::uint8_t>(120 + bright * 2),
+        static_cast<std::uint8_t>(120 + bright * 2),
+        static_cast<std::uint8_t>(120 + bright * 2),
+        255 };
+    draw_text_centered(r, 380, "PRESS A KEY", prompt);
+    draw_text_centered(r, 420, "ESC TO CANCEL", kHintColor);
+}
+
 void Menu::render_quit_confirm(Renderer& r) const {
     r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
                         static_cast<float>(kScreenH)}, kBgColor);
@@ -674,6 +847,7 @@ void Menu::render(Renderer& r) const {
         case State::kSettings:     render_settings(r);    break;
         case State::kControls:     render_controls(r);    break;
         case State::kQuitConfirm:  render_quit_confirm(r);break;
+        case State::kRemapCapture: render_remap_capture(r);break;
         case State::kPlay:         /* nothing; Match renders */ break;
     }
 }
