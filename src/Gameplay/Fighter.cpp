@@ -29,8 +29,8 @@ Vec2 apply_gravity_only(Vec2 v, bool fast_fall_held) {
 Fighter::Fighter(int player_index, const Arena& arena)
     : player_index_(player_index),
       color_(player_index == 0 ? config::kFighterP1 : config::kFighterP2),
-      sprite_(std::make_unique<Sprite>(
-          player_index == 0 ? art::kPaletteP1 : art::kPaletteP2)) {
+      sprite_(std::make_unique<Sprite>(Sprite::build_animation_strip(
+          player_index == 0 ? art::kPaletteP1 : art::kPaletteP2))) {
     respawn(arena);
 }
 
@@ -58,6 +58,13 @@ void Fighter::respawn(const Arena& arena) {
     if (stocks_ == 0) {
         stocks_ = combat::kStartingStocks;
     }
+
+    // M6-B: a respawned fighter must not show the previous death's last
+    // pose for one tick. Reset the animation driver to Idle and pin the
+    // sprite to frame 0 so the first frame after respawn is the clean
+    // idle silhouette.
+    anim_driver_.reset_to_idle();
+    if (sprite_) sprite_->set_current_frame(anim_driver_.global_frame());
 }
 
 // Called by Match immediately after a respawn to grant the post-respawn
@@ -177,9 +184,25 @@ void Fighter::update(const PlayerIntent& motion_intent,
     // --- Resolve arena collision -------------------------------------------
     grounded_ = arena.resolve_collision(body_, velocity_);
     // M5 note: the death-zone check used to live here, but it needed to
-    // happen BEFORE Fighter's own update so Match could still decrement
+    // happen BEFORE Fighter::update so Match could still decrement
     // stocks and start the respawn timer in the same frame. Match now owns
     // the alive->dead transition; Fighter::update just leaves dead_ alone.
+
+    // --- M6-B: animation driver tick --------------------------------------
+    // Tick the driver with the freshly-resolved grounded flag and the
+    // post-attack / post-hitstun state, then pin the sprite to the
+    // resulting global frame. We use the absolute value of horizontal
+    // velocity for the walk threshold (movement direction doesn't
+    // matter to the animation - "is the fighter running?" is enough).
+    const anim::Context actx{
+        /*.grounded=*/        grounded_,
+        /*.dead=*/            dead_,
+        /*.attacking=*/       state_ == State::Attacking,
+        /*.in_hitstun=*/      state_ == State::Hitstun,
+        /*.horizontal_speed=*/ static_cast<float>(velocity_.x < 0 ? -velocity_.x : velocity_.x),
+    };
+    anim_driver_.tick(actx);
+    if (sprite_) sprite_->set_current_frame(anim_driver_.global_frame());
 }
 
 void Fighter::apply_hit(int damage, Vec2 knockback_velocity, int hitstun) {

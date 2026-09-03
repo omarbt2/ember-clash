@@ -5,6 +5,7 @@
 #include "Gameplay/ArtConfig.h"
 #include "Gameplay/Attack.h"
 #include "Gameplay/Sprite.h"
+#include "Gameplay/Animation.h"
 #include "Physics/Motion.h"
 
 #include <cstdint>
@@ -114,13 +115,20 @@ private:
     int   facing_{1};
     config::Color color_{};
 
-    // M6-A: per-fighter procedural sprite. Built from
-    // art::palette_for(player_index) at construction. The sprite owns its
-    // own RGBA buffer; the Renderer uploads it lazily into an
-    // SDL_Texture (see Renderer::draw_sprite). M6-B will swap the single
-    // idle frame for an animation strip; the Fighter-side interface
-    // (a single sprite the renderer blits) stays the same.
+    // M6-B: per-fighter procedural sprite with an animation strip.
+    // Built from art::kPalette{P1,P2} at construction via
+    // Sprite::build_animation_strip, which produces 6 frames covering
+    // Idle (1) + Walk (2) + Jump (1) + Attack (1) + Hitstun (1). The
+    // sprite's current frame is selected by anim_driver_ once per
+    // render() call. The Renderer uploads whichever frame is current
+    // into a cached SDL_Texture (see Renderer::draw_sprite).
     std::unique_ptr<Sprite> sprite_;
+
+    // M6-B: animation driver. Picks the pose (Idle/Walk/Jump/Attack/
+    // Hitstun) from (grounded, velocity, state), advances the per-pose
+    // frame timer, and exposes the global frame index for the sprite.
+    // Headless-testable via src/Gameplay/Animation.{h,cpp}.
+    anim::Driver anim_driver_{};
 
     // Combat state
     State     state_           {State::Idle};

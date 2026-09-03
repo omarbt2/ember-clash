@@ -22,6 +22,8 @@ call "%~dp0run_m5_test.bat"
 set _m5=%errorlevel%
 call "%~dp0run_m6_test.bat"
 set _m6=%errorlevel%
+call "%~dp0run_m6b_test.bat"
+set _m6b=%errorlevel%
 call "%~dp0run_m8_test.bat"
 set _m8=%errorlevel%
 popd
@@ -29,9 +31,11 @@ echo ===summary===
 echo AI: %_ai%
 echo M5: %_m5%
 echo M6: %_m6%
+echo M6-B: %_m6b%
 echo M8: %_m8%
 if %_ai% neq 0 exit /b %_ai%
 if %_m5% neq 0 exit /b %_m5%
 if %_m6% neq 0 exit /b %_m6%
+if %_m6b% neq 0 exit /b %_m6b%
 if %_m8% neq 0 exit /b %_m8%
 exit /b 0

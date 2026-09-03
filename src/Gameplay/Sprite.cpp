@@ -1,15 +1,16 @@
 #include "Gameplay/Sprite.h"
 
 #include <algorithm>
+#include <cstring>
 
 namespace ember {
 
 namespace {
 
 // -----------------------------------------------------------------------------
-// Primitive drawing helpers. All operate on a Sprite's pixel + index maps.
-// We avoid a separate canvas type because the sprite is 64x64, and the
-// overhead of a second buffer would dwarf the work.
+// Primitive drawing helpers. All operate on a Sprite::Frame's pixel + index
+// maps. We avoid a separate canvas type because the sprite is 64x64, and
+// the overhead of a second buffer would dwarf the work.
 // -----------------------------------------------------------------------------
 void put(Sprite::Index* idx, std::uint8_t* rgba,
          int x, int y, Sprite::Index i,
@@ -33,125 +34,248 @@ void put(Sprite::Index* idx, std::uint8_t* rgba,
 }
 
 void fill_rect(Sprite::Index* idx, std::uint8_t* rgba,
-               int x, int y, int w, int h, Sprite::Index i,
+               int x0, int y0, int w, int h,
+               Sprite::Index fill,
                const art::FighterPalette& pal) {
-    for (int yy = y; yy < y + h; ++yy) {
-        for (int xx = x; xx < x + w; ++xx) {
-            put(idx, rgba, xx, yy, i, pal);
+    for (int y = y0; y < y0 + h; ++y) {
+        for (int x = x0; x < x0 + w; ++x) {
+            put(idx, rgba, x, y, fill, pal);
         }
     }
 }
 
 void outline_rect(Sprite::Index* idx, std::uint8_t* rgba,
-                  int x, int y, int w, int h, Sprite::Index i,
+                  int x0, int y0, int w, int h,
+                  Sprite::Index outline,
                   const art::FighterPalette& pal) {
-    for (int xx = x; xx < x + w; ++xx) {
-        put(idx, rgba, xx, y,         i, pal);
-        put(idx, rgba, xx, y + h - 1, i, pal);
+    for (int x = x0; x < x0 + w; ++x) {
+        put(idx, rgba, x, y0,         outline, pal);
+        put(idx, rgba, x, y0 + h - 1, outline, pal);
     }
-    for (int yy = y; yy < y + h; ++yy) {
-        put(idx, rgba, x,         yy, i, pal);
-        put(idx, rgba, x + w - 1, yy, i, pal);
+    for (int y = y0; y < y0 + h; ++y) {
+        put(idx, rgba, x0,         y, outline, pal);
+        put(idx, rgba, x0 + w - 1, y, outline, pal);
     }
 }
+
+int count_opaque(const Sprite::Index* idx) {
+    int n = 0;
+    for (std::size_t i = 0; i < Sprite::kSize * Sprite::kSize; ++i) {
+        if (idx[i] != Sprite::Index::Transparent) ++n;
+    }
+    return n;
+}
+
+// -----------------------------------------------------------------------------
+// Shared silhouette geometry. The body region is always 48x64 source pixels
+// (matches Fighter::kWidth / kHeight) with 8 px of margin on each side so
+// the M6-B attack pose can extend an arm into the right margin.
+// -----------------------------------------------------------------------------
+constexpr int kBodyMargin = 8;
+constexpr int kBodyBaseX  = kBodyMargin;
+constexpr int kHeadX      = kBodyBaseX + 6;       // 14
+constexpr int kHeadY      = 6;
+constexpr int kHeadW      = 18;
+constexpr int kHeadH      = 12;
+constexpr int kTorsoX     = kBodyBaseX + 4;       // 12
+constexpr int kTorsoY     = kHeadY + kHeadH;      // 18
+constexpr int kTorsoW     = (Sprite::kSize - 2 * kBodyMargin) - 8;  // 40
+constexpr int kTorsoH     = 16;
+constexpr int kLegY       = kTorsoY + kTorsoH;   // 34
+constexpr int kLegH       = 16;
 
 } // namespace
 
-Sprite::Sprite(const art::FighterPalette& palette) {
-    pixels_.fill(0);
-    index_map_.fill(Index::Transparent);
+// Frame offset table. Order must match the AnimationKind enum.
+const int Sprite::kFrameOffsets[static_cast<int>(Sprite::AnimationKind::_Count)] = {
+    0,  // Idle
+    1,  // Walk (frame 0)
+    3,  // Jump
+    4,  // Attack
+    5,  // Hitstun
+};
 
-    // ---- Layout (top-down) -----------------------------------------------
-    // 64x64 grid. We draw a chunky cartoon fighter: round head, broad
-    // shoulders / torso, arms at the side, legs that taper to a point.
-    // Coordinate origin is top-left; y=0 is the top of the sprite.
-    //
-    // The fighter body is centred horizontally; there's 8 px of transparent
-    // margin on each side (so the silhouette can extend without touching
-    // the texture edge in M6-B when we draw attack frames).
-    //
-    //   y in 0..7     transparent
-    //   y in 8..27    head (round; outline + body + highlight cap)
-    //   y in 28..47   torso (rectangle with accent sash + highlight stripe)
-    //   y in 48..55   arms (small bars at the sides)
-    //   y in 56..63   legs (two rectangles separated by a gap)
-    //
-    // Numbers below are source pixels (Sprite::kSize=64). The Renderer
-    // scales by art::kRenderPixelSize so a 48x64 body becomes 96x128 on
-    // screen.
+// -----------------------------------------------------------------------------
+// Pose generators. Each function draws one frame's worth of pixels into a
+// freshly-emptied Frame. Idle is the M6-A silhouette verbatim; every other
+// pose is a small variation.
+// -----------------------------------------------------------------------------
 
-    // Head: 20x20, centred horizontally (x = 22..41), y = 8..27.
-    // We use outline + body + a small highlight block on the top-left of
-    // the head so the silhouette has a clear "light source" - cheap but
-    // effective read.
-    outline_rect(index_map_.data(), pixels_.data(), 22, 8, 20, 20,
-                 Index::Outline, palette);
-    fill_rect   (index_map_.data(), pixels_.data(), 23, 9, 18, 18,
-                 Index::Body, palette);
-    // Eyes - two small dark slots so the face reads. Outline stop is the
-    // same colour as the body outline, so this stays in palette.
-    put(index_map_.data(), pixels_.data(), 28, 16, Index::Outline, palette);
-    put(index_map_.data(), pixels_.data(), 35, 16, Index::Outline, palette);
-    // Highlight cap on top of the head.
-    fill_rect   (index_map_.data(), pixels_.data(), 24, 9, 16, 3,
-                 Index::Highlight, palette);
-    // Accent stripe at the bottom of the head (a "headband" / "crown").
-    fill_rect   (index_map_.data(), pixels_.data(), 23, 23, 18, 2,
-                 Index::Accent, palette);
+static void draw_idle(Sprite::Index* idx, std::uint8_t* rgba,
+                      const art::FighterPalette& pal) {
+    outline_rect(idx, rgba, kHeadX, kHeadY, kHeadW, kHeadH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + 1, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Highlight, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + kHeadH / 2, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Accent, pal);
 
-    // Torso: 28x20, centred (x = 18..45), y = 28..47. Outline + body +
-    // a vertical accent sash and a horizontal highlight stripe.
-    outline_rect(index_map_.data(), pixels_.data(), 18, 28, 28, 20,
-                 Index::Outline, palette);
-    fill_rect   (index_map_.data(), pixels_.data(), 19, 29, 26, 18,
-                 Index::Body, palette);
-    // Accent sash (vertical centre stripe).
-    fill_rect   (index_map_.data(), pixels_.data(), 30, 30, 4, 16,
-                 Index::Accent, palette);
-    // Highlight stripe on the upper-left "shoulder".
-    fill_rect   (index_map_.data(), pixels_.data(), 20, 30, 6, 3,
-                 Index::Highlight, palette);
+    outline_rect(idx, rgba, kTorsoX, kTorsoY, kTorsoW, kTorsoH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 1, kTorsoW - 2, 3, Sprite::Index::Accent, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 4, kTorsoW - 2, kTorsoH - 5, Sprite::Index::Body, pal);
 
-    // Arms: two 4x20 bars at the sides of the torso, slightly below the
-    // shoulder. Outline + body. They sit at x = 14..17 and 46..49,
-    // y = 32..51 (so they extend just past the torso for a thicker look).
-    outline_rect(index_map_.data(), pixels_.data(), 14, 32, 4, 20,
-                 Index::Outline, palette);
-    fill_rect   (index_map_.data(), pixels_.data(), 15, 33, 2, 18,
-                 Index::Body, palette);
-    outline_rect(index_map_.data(), pixels_.data(), 46, 32, 4, 20,
-                 Index::Outline, palette);
-    fill_rect   (index_map_.data(), pixels_.data(), 47, 33, 2, 18,
-                 Index::Body, palette);
-
-    // Legs: two 8x8 rectangles at the bottom, with a 4 px gap between
-    // them. Outline + body. y = 48..55, x = 22..29 (left leg) and
-    // 35..42 (right leg).
-    outline_rect(index_map_.data(), pixels_.data(), 22, 48, 8, 8,
-                 Index::Outline, palette);
-    fill_rect   (index_map_.data(), pixels_.data(), 23, 49, 6, 6,
-                 Index::Body, palette);
-    outline_rect(index_map_.data(), pixels_.data(), 34, 48, 8, 8,
-                 Index::Outline, palette);
-    fill_rect   (index_map_.data(), pixels_.data(), 35, 49, 6, 6,
-                 Index::Body, palette);
-    // Feet: one-row accent line at the bottom of each leg.
-    fill_rect   (index_map_.data(), pixels_.data(), 23, 55, 6, 1,
-                 Index::Accent, palette);
-    fill_rect   (index_map_.data(), pixels_.data(), 35, 55, 6, 1,
-                 Index::Accent, palette);
-
-    // Count opaque pixels. This is what the test harness uses to confirm
-    // the silhouette is "filled" without having to scan the buffer.
-    int count = 0;
-    for (Index i : index_map_) {
-        if (i != Index::Transparent) ++count;
+    for (int side = 0; side < 2; ++side) {
+        const int arm_x = (side == 0) ? kTorsoX - 2 : kTorsoX + kTorsoW - 1;
+        fill_rect(idx, rgba, arm_x, kTorsoY + 1, 2, kTorsoH - 4, Sprite::Index::Body, pal);
     }
-    opaque_count_ = count;
+
+    outline_rect(idx, rgba, kTorsoX + 6, kLegY, 4, kLegH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 7, kLegY + 1, 2, kLegH - 2, Sprite::Index::Body, pal);
+    outline_rect(idx, rgba, kTorsoX + kTorsoW - 10, kLegY, 4, kLegH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + kTorsoW - 9, kLegY + 1, 2, kLegH - 2, Sprite::Index::Body, pal);
 }
 
-void Sprite::set_pixel(int x, int y, Index idx, const art::FighterPalette& pal) {
-    put(index_map_.data(), pixels_.data(), x, y, idx, pal);
+static void draw_walk(Sprite::Index* idx, std::uint8_t* rgba,
+                      const art::FighterPalette& pal,
+                      int walk_frame) {
+    outline_rect(idx, rgba, kHeadX, kHeadY, kHeadW, kHeadH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + 1, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Highlight, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + kHeadH / 2, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Accent, pal);
+
+    outline_rect(idx, rgba, kTorsoX, kTorsoY, kTorsoW, kTorsoH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 1, kTorsoW - 2, 3, Sprite::Index::Accent, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 4, kTorsoW - 2, kTorsoH - 5, Sprite::Index::Body, pal);
+
+    const int arm_sway = (walk_frame == 0) ? 0 : 1;
+    for (int side = 0; side < 2; ++side) {
+        const int base_arm_x = (side == 0) ? kTorsoX - 2 : kTorsoX + kTorsoW - 1;
+        const int arm_x = base_arm_x + ((side == 0) ? -arm_sway : arm_sway);
+        fill_rect(idx, rgba, arm_x, kTorsoY + 1, 2, kTorsoH - 4, Sprite::Index::Body, pal);
+    }
+
+    if (walk_frame == 0) {
+        outline_rect(idx, rgba, kTorsoX + 2, kLegY, 5, kLegH, Sprite::Index::Outline, pal);
+        fill_rect(idx, rgba, kTorsoX + 3, kLegY + 1, 3, kLegH - 2, Sprite::Index::Body, pal);
+        outline_rect(idx, rgba, kTorsoX + kTorsoW - 7, kLegY, 5, kLegH, Sprite::Index::Outline, pal);
+        fill_rect(idx, rgba, kTorsoX + kTorsoW - 6, kLegY + 1, 3, kLegH - 2, Sprite::Index::Body, pal);
+    } else {
+        outline_rect(idx, rgba, kTorsoX + 4, kLegY, 5, kLegH, Sprite::Index::Outline, pal);
+        fill_rect(idx, rgba, kTorsoX + 5, kLegY + 1, 3, kLegH - 2, Sprite::Index::Body, pal);
+        outline_rect(idx, rgba, kTorsoX + kTorsoW - 9, kLegY, 5, kLegH, Sprite::Index::Outline, pal);
+        fill_rect(idx, rgba, kTorsoX + kTorsoW - 8, kLegY + 1, 3, kLegH - 2, Sprite::Index::Body, pal);
+    }
+}
+
+static void draw_jump(Sprite::Index* idx, std::uint8_t* rgba,
+                      const art::FighterPalette& pal) {
+    outline_rect(idx, rgba, kHeadX, kHeadY, kHeadW, kHeadH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + 1, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Highlight, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + kHeadH / 2, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Accent, pal);
+
+    outline_rect(idx, rgba, kTorsoX, kTorsoY, kTorsoW, kTorsoH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 1, kTorsoW - 2, 3, Sprite::Index::Accent, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 4, kTorsoW - 2, kTorsoH - 5, Sprite::Index::Body, pal);
+
+    for (int side = 0; side < 2; ++side) {
+        const int arm_x = (side == 0) ? kTorsoX - 1 : kTorsoX + kTorsoW;
+        fill_rect(idx, rgba, arm_x, kTorsoY + 2, 1, kTorsoH - 6, Sprite::Index::Body, pal);
+    }
+
+    const int tuck_x = kTorsoX + 6;
+    const int tuck_w = kTorsoW - 12;
+    const int tuck_y = kLegY + 2;
+    const int tuck_h = kLegH - 4;
+    outline_rect(idx, rgba, tuck_x, tuck_y, tuck_w, tuck_h, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, tuck_x + 1, tuck_y + 1, tuck_w - 2, tuck_h - 2, Sprite::Index::Body, pal);
+}
+
+static void draw_attack(Sprite::Index* idx, std::uint8_t* rgba,
+                        const art::FighterPalette& pal) {
+    outline_rect(idx, rgba, kHeadX, kHeadY, kHeadW, kHeadH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + 1, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Highlight, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + kHeadH / 2, kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Accent, pal);
+
+    outline_rect(idx, rgba, kTorsoX, kTorsoY, kTorsoW, kTorsoH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 1, kTorsoW - 2, 3, Sprite::Index::Accent, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 4, kTorsoW - 2, kTorsoH - 5, Sprite::Index::Body, pal);
+
+    // Left arm hanging
+    fill_rect(idx, rgba, kTorsoX - 2, kTorsoY + 1, 2, kTorsoH - 4, Sprite::Index::Body, pal);
+
+    // Right arm extended forward (sprite-space right; renderer mirrors
+    // when facing left). Arm + fist extend into the right margin so
+    // they show up after the body region.
+    const int arm_y = kTorsoY + 3;
+    for (int x = kTorsoX + kTorsoW; x < kTorsoX + kTorsoW + 8; ++x) {
+        put(idx, rgba, x, arm_y,     Sprite::Index::Body, pal);
+        put(idx, rgba, x, arm_y + 1, Sprite::Index::Body, pal);
+        put(idx, rgba, x, arm_y + 2, Sprite::Index::Body, pal);
+    }
+    const int fist_x = kTorsoX + kTorsoW + 8;
+    const int fist_y = arm_y - 1;
+    outline_rect(idx, rgba, fist_x, fist_y, 4, 4, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, fist_x + 1, fist_y + 1, 2, 2, Sprite::Index::Accent, pal);
+
+    outline_rect(idx, rgba, kTorsoX + 2, kLegY, 5, kLegH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 3, kLegY + 1, 3, kLegH - 2, Sprite::Index::Body, pal);
+    outline_rect(idx, rgba, kTorsoX + kTorsoW - 7, kLegY, 5, kLegH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + kTorsoW - 6, kLegY + 1, 3, kLegH - 2, Sprite::Index::Body, pal);
+}
+
+static void draw_hitstun(Sprite::Index* idx, std::uint8_t* rgba,
+                         const art::FighterPalette& pal) {
+    outline_rect(idx, rgba, kHeadX, kHeadY - 1, kHeadW, kHeadH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY,     kHeadW - 2, kHeadH / 2 - 1, Sprite::Index::Highlight, pal);
+    fill_rect(idx, rgba, kHeadX + 1, kHeadY + kHeadH / 2 - 1, kHeadW - 2, kHeadH / 2, Sprite::Index::Accent, pal);
+
+    outline_rect(idx, rgba, kTorsoX, kTorsoY, kTorsoW, kTorsoH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 1, kTorsoW - 2, 3, Sprite::Index::Accent, pal);
+    fill_rect(idx, rgba, kTorsoX + 1, kTorsoY + 4, kTorsoW - 2, kTorsoH - 5, Sprite::Index::Body, pal);
+
+    for (int side = 0; side < 2; ++side) {
+        const int arm_x = (side == 0) ? kTorsoX - 3 : kTorsoX + kTorsoW - 1;
+        fill_rect(idx, rgba, arm_x, kTorsoY + 1, 3, kTorsoH - 4, Sprite::Index::Body, pal);
+    }
+
+    outline_rect(idx, rgba, kTorsoX + 1, kLegY, 4, kLegH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + 2, kLegY + 1, 2, kLegH - 2, Sprite::Index::Body, pal);
+    outline_rect(idx, rgba, kTorsoX + kTorsoW - 5, kLegY, 4, kLegH, Sprite::Index::Outline, pal);
+    fill_rect(idx, rgba, kTorsoX + kTorsoW - 4, kLegY + 1, 2, kLegH - 2, Sprite::Index::Body, pal);
+}
+
+// -----------------------------------------------------------------------------
+// Public API
+// -----------------------------------------------------------------------------
+
+Sprite::Sprite(const art::FighterPalette& palette) {
+    // M6-A single-frame Sprite: one Idle pose. The M6-A test asserts
+    // frame_count() == 1 here.
+    frames_.push_back(Frame{});
+    current_frame_ = 0;
+    draw_idle(frames_[0].index_map.data(), frames_[0].pixels.data(), palette);
+    frames_[0].opaque_count = count_opaque(frames_[0].index_map.data());
+}
+
+Sprite Sprite::build_animation_strip(const art::FighterPalette& palette) {
+    Sprite s(palette);
+    // The constructor above already built frame 0 (Idle). Append the
+    // remaining 5 frames in the order declared by kFrameOffsets.
+    s.frames_.push_back(Frame{});
+    draw_walk(s.frames_[1].index_map.data(), s.frames_[1].pixels.data(), palette, 0);
+    s.frames_[1].opaque_count = count_opaque(s.frames_[1].index_map.data());
+
+    s.frames_.push_back(Frame{});
+    draw_walk(s.frames_[2].index_map.data(), s.frames_[2].pixels.data(), palette, 1);
+    s.frames_[2].opaque_count = count_opaque(s.frames_[2].index_map.data());
+
+    s.frames_.push_back(Frame{});
+    draw_jump(s.frames_[3].index_map.data(), s.frames_[3].pixels.data(), palette);
+    s.frames_[3].opaque_count = count_opaque(s.frames_[3].index_map.data());
+
+    s.frames_.push_back(Frame{});
+    draw_attack(s.frames_[4].index_map.data(), s.frames_[4].pixels.data(), palette);
+    s.frames_[4].opaque_count = count_opaque(s.frames_[4].index_map.data());
+
+    s.frames_.push_back(Frame{});
+    draw_hitstun(s.frames_[5].index_map.data(), s.frames_[5].pixels.data(), palette);
+    s.frames_[5].opaque_count = count_opaque(s.frames_[5].index_map.data());
+
+    return s;
+}
+
+void Sprite::set_pixel(int frame_index, int x, int y, Index idx,
+                       const art::FighterPalette& pal) {
+    if (frame_index < 0 || frame_index >= static_cast<int>(frames_.size())) return;
+    put(frames_[static_cast<std::size_t>(frame_index)].index_map.data(),
+        frames_[static_cast<std::size_t>(frame_index)].pixels.data(),
+        x, y, idx, pal);
 }
 
 } // namespace ember

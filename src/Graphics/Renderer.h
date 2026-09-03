@@ -75,6 +75,10 @@ public:
     struct SpriteCacheSlot {
         const Sprite* key{nullptr};
         SDL_Texture*  texture{nullptr};
+        // M6-B: track which frame the texture was last uploaded with so
+        // we can re-upload when the sprite's current_frame changes.
+        // -1 == "no frame uploaded yet".
+        int last_frame{-1};
     };
 
 private:

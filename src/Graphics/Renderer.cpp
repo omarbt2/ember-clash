@@ -78,7 +78,8 @@ Renderer::~Renderer() {
             SDL_DestroyTexture(entry.texture);
             entry.texture = nullptr;
         }
-        entry.key = nullptr;
+        entry.key       = nullptr;
+        entry.last_frame = -1;
     }
     if (renderer_) {
         SDL_DestroyRenderer(renderer_);
@@ -115,12 +116,14 @@ void Renderer::draw_sprite(const Sprite& sprite,
 
     auto* slot = find_slot(sprite_cache_, &sprite);
 
-    // Lazy upload. We only build the SDL_Texture the first time we see
-    // this Sprite. The texture is streaming, so future updates (in M6-B
-    // when frames change) are a single SDL_UpdateTexture call.
+    // M6-B: a Sprite's pixels change when its current_frame changes (the
+    // animation driver flips through the strip). We cache the texture
+    // by Sprite* identity and re-upload only when the frame index
+    // changes - so walking fighters pay exactly one extra
+    // SDL_UpdateTexture per walk-step instead of every render.
     if (slot->key != &sprite) {
-        // We may be evicting an existing texture (slot was full). Free it
-        // before replacing so we don't leak.
+        // New slot / eviction: drop any previous texture and build a
+        // fresh one for this Sprite.
         if (slot->texture) {
             SDL_DestroyTexture(slot->texture);
             slot->texture = nullptr;
@@ -143,8 +146,20 @@ void Renderer::draw_sprite(const Sprite& sprite,
             SDL_DestroyTexture(tex);
             return;
         }
-        slot->key      = &sprite;
-        slot->texture  = tex;
+        slot->key        = &sprite;
+        slot->texture    = tex;
+        slot->last_frame = sprite.current_frame();
+    } else if (slot->last_frame != sprite.current_frame()) {
+        // Same Sprite, different frame: re-upload the current pixels
+        // into the existing texture. 16 KB per call, cheap.
+        if (slot->texture) {
+            if (!SDL_UpdateTexture(slot->texture, nullptr,
+                                   sprite.pixels_rgba(),
+                                   Sprite::kSize * 4)) {
+                Logger::warn(std::string{"SDL_UpdateTexture: "} + SDL_GetError());
+            }
+            slot->last_frame = sprite.current_frame();
+        }
     }
 
     SDL_FRect dst_rect{
