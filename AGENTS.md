@@ -405,8 +405,47 @@ Working commits to date:
 * `2ed21fe` - M8 web build verified end-to-end (emcmake configure +
   build, .js + .wasm copied into web/, smoke-tested over local
   HTTP server)
-* *(this session)* - M6-A art identity + procedural pixel-art
-  sprite + arena gradient + death-zone band; M6 test harness
-  (5 scenarios / 12 asserts); M4 / M5 test runners patched to
-  link Sprite.cpp.obj; docs reconciled (was wrongly listing M8 as
-  current milestone and M6/M7 as deferred)
+* `e31b8a7` - M6-A art identity + procedural pixel-art sprite +
+  arena gradient + death-zone band; M6 test harness (5 scenarios
+  / 12 asserts); M4 / M5 test runners patched to link
+  Sprite.cpp.obj; docs reconciled
+* `5da32d8` - M6-B animation system: 6-frame Sprite strip (Idle /
+  Walk / Jump / Attack / Hitstun) + headless anim::Driver +
+  per-frame SDL_UpdateTexture cache. M6-B test harness (5
+  scenarios / 33 asserts). Web rebuild +5 frames delta
+* `b233ca2` - M6-C playability integration test: 8 scenarios /
+  33 asserts; InputManager test seam (set_held_for_test /
+  begin_frame_for_test); arena side-platform repositioning so
+  spawn columns are clear (side_margin 80->160, side_w 240->160);
+  test runner vcvars64 path fix
+* `0e84cab` - M6-C features: hit-stop (kHitStopFrames=3, freezes
+  motion+AI on hit), KO screen-shake (kKoShakeFrames=14,
+  kKoShakeMagnitude=12px, linearly-decaying random offset
+  forwarded to Renderer::set_view_offset), M3 debug outline
+  removal (hitbox + hurtbox), hit-spark VFX promoted as the
+  primary combat feedback. M6-C test grew to 11 scenarios /
+  59 asserts. Shake tick moved to the TOP of Match::update so
+  the first observable value after KO is kKoShakeFrames, not
+  kKoShakeFrames-1. 136-check full regression green.
+
+## Test framework conventions
+
+* **Frame / hit timing**: `Fighter::update` advances `attack_frame_`
+  at the START of each tick (before hit detection). `Match::update`
+  runs hit detection AFTER `Fighter::update`. Net: when a test
+  observes `attack_frame_ == N` after a tick, the hit was checked
+  with `attack_frame_ == N-1` (i.e. one frame earlier).
+* **Jab timing** (startup=3, active=2, recovery=6): the hit lands
+  on the tick where `attack_frame_` reaches 3 (the first active
+  frame). After this tick, the visible `attack_frame_` is 4.
+* **First-frame observable values for feel state**: the match
+  contract is that the tick which SETS a feel counter (hit-stop,
+  KO shake) does NOT also decrement it. The decrement happens at
+  the TOP of the NEXT `Match::update` call. Tests should sample
+  immediately after the tick that armed the state and expect to
+  see the full duration (e.g. `kHitStopFrames`, `kKoShakeFrames`).
+* **M6-C test seam**: `InputManager` has `set_held_for_test`,
+  `clear_for_test`, `begin_frame_for_test` to drive headless
+  Match. `begin_frame_for_test()` MUST be called BEFORE
+  `set_held_for_test` for the same frame (input is sampled
+  inside begin_frame).
