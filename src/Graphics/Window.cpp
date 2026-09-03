@@ -49,11 +49,38 @@ Window& Window::operator=(Window&& other) noexcept {
         window_       = other.window_;
         width_        = other.width_;
         height_       = other.height_;
+        fullscreen_   = other.fullscreen_;
         other.window_ = nullptr;
         other.width_  = 0;
         other.height_ = 0;
+        other.fullscreen_ = false;
     }
     return *this;
+}
+
+bool Window::set_fullscreen(bool on) {
+    if (!window_) return false;
+    if (on == fullscreen_) {
+        // No-op if the state already matches. The caller is
+        // allowed to call this idempotently (e.g. on every
+        // settings flush) without producing a real mode switch.
+        return fullscreen_;
+    }
+    // SDL_WINDOW_FULLSCREEN gives a real fullscreen-mode switch
+    // (display-mode change on Windows). We deliberately avoid
+    // SDL_WINDOW_FULLSCREEN_DESKTOP (borderless windowed) here so
+    // the platform's fullscreen experience is consistent.
+    const bool ok = SDL_SetWindowFullscreen(window_, on ? SDL_WINDOW_FULLSCREEN : 0);
+    if (!ok) {
+        Logger::warn(std::string{"Window: SDL_SetWindowFullscreen("}
+                     + (on ? "true" : "false") + ") failed: "
+                     + SDL_GetError());
+        return fullscreen_;
+    }
+    fullscreen_ = on;
+    Logger::info(on ? "Window: fullscreen enabled"
+                    : "Window: fullscreen disabled (windowed)");
+    return fullscreen_;
 }
 
 } // namespace ember

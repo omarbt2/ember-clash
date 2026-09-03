@@ -70,6 +70,75 @@ inline constexpr FighterPalette kPaletteP2{
     /*highlight */ {200, 235, 255, 255 },
 };
 
+// ------------------------------------------------------------------
+// Color-blind alternate palettes.
+//
+// These are used when the user enables
+// Settings::color_blind_palette. The shapes are kept identical (the
+// silhouette is the same), but the hue choices follow the standard
+// Color Universal Design recommendations: yellow vs blue (the
+// two colors that stay distinct under every common form of
+// color-vision deficiency, including protanopia, deuteranopia,
+// and tritanopia). The accent stops are intentionally more
+// saturated to compensate for the lower contrast.
+//
+// P1 stays warm (it remains the "primary" fighter); the body
+// and highlight are pushed toward bright yellow. P2 stays cool
+// but the body is pushed toward bright blue with a light cyan
+// highlight.
+//
+// These constants are constexpr so the inline accessor
+// palette_for(player_index, color_blind_on) is a compile-time
+// branch.
+// ------------------------------------------------------------------
+inline constexpr FighterPalette kPaletteP1ColorBlind{
+    /*outline   */ { 40,  20,   0, 255 },
+    /*body      */ {230, 175,  20, 255 },
+    /*accent    */ {255, 220,  60, 255 },
+    /*highlight */ {255, 245, 200, 255 },
+};
+
+inline constexpr FighterPalette kPaletteP2ColorBlind{
+    /*outline   */ {  0,  10,  35, 255 },
+    /*body      */ { 30, 110, 220, 255 },
+    /*accent    */ { 80, 180, 245, 255 },
+    /*highlight */ {200, 240, 255, 255 },
+};
+
+// Resolve the palette for a given fighter and accessibility
+// setting. Compile-time-friendly: the color_blind_on bool can
+// be elided when false.
+constexpr const FighterPalette& palette_for(int player_index, bool color_blind_on) {
+    if (color_blind_on) {
+        return player_index == 0 ? kPaletteP1ColorBlind
+                                 : kPaletteP2ColorBlind;
+    }
+    return player_index == 0 ? kPaletteP1 : kPaletteP2;
+}
+
+// Runtime color-blind flag. Stored as a function-local static
+// (so the symbol does not leak) and read at Fighter construction
+// time. The flag is consulted when Sprite::build_animation_strip()
+// is called inside Fighter::Fighter, which happens on every
+// Match::reset() (initial construction + rematch). Toggling the
+// flag between matches is therefore the supported workflow; the
+// next rematch picks up the new palette.
+//
+// We keep the toggle function-local (not a global) so the
+// declaration stays in the same header that defines the
+// palettes, and so the address is well-defined without an
+// out-of-line definition.
+inline bool& color_blind_flag() {
+    static bool enabled = false;
+    return enabled;
+}
+
+// Returns the current state of the runtime color-blind flag.
+inline bool color_blind_enabled() { return color_blind_flag(); }
+
+// Sets the runtime color-blind flag.
+inline void set_color_blind(bool on) { color_blind_flag() = on; }
+
 // -----------------------------------------------------------------------------
 // Arena palette.
 // -----------------------------------------------------------------------------

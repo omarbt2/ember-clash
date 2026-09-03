@@ -30,7 +30,7 @@ Fighter::Fighter(int player_index, const Arena& arena)
     : player_index_(player_index),
       color_(player_index == 0 ? config::kFighterP1 : config::kFighterP2),
       sprite_(std::make_unique<Sprite>(Sprite::build_animation_strip(
-          player_index == 0 ? art::kPaletteP1 : art::kPaletteP2))) {
+          art::palette_for(player_index, art::color_blind_enabled())))) {
     respawn(arena);
 }
 

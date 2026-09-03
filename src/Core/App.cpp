@@ -6,6 +6,7 @@
 #include "Core/Time.h"
 #include "Gameplay/AiConfig.h"
 #include "Gameplay/AiController.h"
+#include "Gameplay/ArtConfig.h"
 #include "Gameplay/Match.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/Window.h"
@@ -40,17 +41,34 @@ bool App::initialize() {
     }
     sdl_initialized_ = true;
 
+    // Load the persistent settings (or defaults if no file). We
+    // do this BEFORE creating the window so a saved fullscreen=true
+    // makes the game boot directly into fullscreen rather than
+    // briefly flashing windowed.
+    settings_ = load_settings_from_file(default_settings_path());
+
     window_ = std::make_unique<Window>(config::kWindowTitle,
                                        config::kWindowWidth,
                                        config::kWindowHeight);
     if (!window_->is_valid()) {
         return false;
     }
+    if (settings_.fullscreen) {
+        window_->set_fullscreen(true);
+    }
 
     renderer_ = std::make_unique<Renderer>(*window_);
     if (!renderer_->native()) {
         return false;
     }
+
+    // Apply the saved render scale on boot. Settings stores an
+    // integer (1..4); the renderer clamps internally. A value of
+    // 1 is the 1:1 identity default; higher values cause
+    // SDL_RenderSetScale to up-scale the output to the window.
+    if (settings_.render_scale < 1) settings_.render_scale = 1;
+    if (settings_.render_scale > 4) settings_.render_scale = 4;
+    renderer_->set_render_scale(static_cast<float>(settings_.render_scale));
 
     clock_   = std::make_unique<Clock>();
     input_   = std::make_unique<InputManager>();
@@ -59,10 +77,14 @@ bool App::initialize() {
     audio_->initialize();
     menu_    = std::make_unique<Menu>();
 
-    // Load the persistent settings (or defaults if no file).
-    settings_ = load_settings_from_file(default_settings_path());
     audio_->apply_settings(settings_);
     menu_->bind_settings(&settings_);
+
+    // Apply art-related settings (color-blind palette) BEFORE the
+    // first match is constructed, so the very first sprite is
+    // already in the correct palette. The flag is consulted at
+    // Fighter construction time.
+    art::set_color_blind(settings_.color_blind_palette);
 
     // Create the first match instance. The menu starts in
     // kTitle and gates whether this match is allowed to tick.
@@ -219,23 +241,53 @@ void App::handle_menu_action() {
             settings_dirty_ = true;
             flush_settings();
             audio_->apply_settings(settings_);
+            // Re-apply render scale (in case the user edited it
+            // inline via the settings screen, which mutates the
+            // int but does not yet push it to the renderer).
+            if (renderer_) {
+                renderer_->set_render_scale(
+                    static_cast<float>(settings_.render_scale));
+            }
+            if (window_) {
+                window_->set_fullscreen(settings_.fullscreen);
+            }
+            art::set_color_blind(settings_.color_blind_palette);
             break;
         case Menu::Action::kRestoreDefaultSettings:
             settings_.reset_to_defaults();
             settings_dirty_ = true;
             flush_settings();
             audio_->apply_settings(settings_);
+            // Re-apply render scale in case the default differs
+            // from the live value.
+            if (renderer_) {
+                renderer_->set_render_scale(
+                    static_cast<float>(settings_.render_scale));
+            }
+            if (window_) {
+                window_->set_fullscreen(settings_.fullscreen);
+            }
+            art::set_color_blind(settings_.color_blind_palette);
             break;
         case Menu::Action::kToggleFullscreen:
-            // V1.0: the window is fixed-size (1280x720). A real
-            // fullscreen toggle would call SDL_SetWindowFullscreen
-            // here. We log the intent and persist the setting
-            // so the user's preference survives a relaunch even
-            // though V1.0 ignores it.
+            // Real OS-level fullscreen switch via SDL. The window
+            // is recreated-in-place by SDL_SetWindowFullscreen so
+            // our Window::set_fullscreen() just toggles the flag
+            // and calls into SDL; the renderer does not need to
+            // be reinitialised because it draws into the window's
+            // logical surface (size-independent).
             settings_.fullscreen = !settings_.fullscreen;
+            if (window_) window_->set_fullscreen(settings_.fullscreen);
             settings_dirty_ = true;
-            Logger::info("App: fullscreen toggle requested (V1.0: no-op)");
             break;
+        case Menu::Action::kApplyRenderScale: {
+            // Settings stored an integer 1..4. Push it into the
+            // renderer so subsequent frames use the new scale.
+            const int s = settings_.render_scale;
+            const float sf = static_cast<float>(s < 1 ? 1 : s);
+            if (renderer_) renderer_->set_render_scale(sf);
+            break;
+        }
         case Menu::Action::kRequestQuit:
             running_ = false;
             break;

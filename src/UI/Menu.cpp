@@ -181,6 +181,9 @@ void Menu::rebuild_settings_entries() {
         settings_entries_.push_back(mkv("AI DIFFICULTY",
             std::string(settings_->ai_difficulty.data()).c_str(),
             Action::kNone));
+        settings_entries_.push_back(mkv("RENDER SCALE",
+            (std::string("x") + std::to_string(settings_->render_scale)).c_str(),
+            Action::kApplyRenderScale));
         settings_entries_.push_back(mk ("RESTORE DEFAULTS",
             Action::kRestoreDefaultSettings));
         settings_entries_.push_back(mk ("BACK",
@@ -318,8 +321,13 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                                                       settings_->ai_difficulty.size() - 1));
                     break;
                 }
-                case 10: settings_->reset_to_defaults(); break;
-                case 11: {
+                case 10: {
+                    // Render scale: cycle 1 -> 2 -> 3 -> 4 -> 1.
+                    settings_->render_scale = (settings_->render_scale % 4) + 1;
+                    break;
+                }
+                case 11: settings_->reset_to_defaults(); break;
+                case 12: {
                     // BACK row
                     pending_action_ = Action::kSaveSettings;
                     state_ = State::kMain;
@@ -328,7 +336,7 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     return Action::kNone;
                 }
             }
-            if (selected_index_ < 10) {
+            if (selected_index_ < 11) {
                 audio.play(SfxId::MenuConfirm);
             }
             rebuild_settings_entries();

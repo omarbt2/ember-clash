@@ -68,6 +68,7 @@ public:
         kRestoreDefaultSettings,
         kRequestQuit,
         kToggleFullscreen,
+        kApplyRenderScale,
     };
 
     // Events the App can push into the menu.

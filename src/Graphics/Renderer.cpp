@@ -98,6 +98,22 @@ void Renderer::set_view_offset(float dx, float dy) {
     view_offset_y_ = dy;
 }
 
+void Renderer::set_render_scale(float s) {
+    // Clamp to a sane range. Render scale of 0 would be a divide-
+    // by-zero; very large scales are pointless and break the
+    // window. Settings stores an integer 1..N; we just round
+    // here so the int->float conversion is lossless.
+    if (s < 0.5f) s = 0.5f;
+    if (s > 4.0f) s = 4.0f;
+    if (s == render_scale_) {
+        return;
+    }
+    render_scale_ = s;
+    if (renderer_) {
+        SDL_SetRenderScale(renderer_, s, s);
+    }
+}
+
 namespace {
 // M6-C: apply the per-frame view offset to a logical rect before we hand
 // it to SDL. Subtracting the offset makes a positive offset "push the

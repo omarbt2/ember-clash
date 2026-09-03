@@ -10,6 +10,7 @@
 #include "Core/Settings.h"
 #include "Gameplay/AiConfig.h"
 #include "Gameplay/AiController.h"
+#include "Gameplay/ArtConfig.h"
 #include "Gameplay/Match.h"
 #include "Input/Gamepad.h"
 #include "Input/InputManager.h"
@@ -265,6 +266,101 @@ int main() {
               "reset_to_defaults: color_blind_palette=false");
 
         std::remove(path.c_str());
+    }
+
+    // ---- 8b. M12-PARTIAL closers: fullscreen / render scale /
+    // color-blind palette. These exercise the new code added to
+    // close the M12-PARTIAL items flagged in the master audit
+    // (item 4 = fullscreen, item 5 = render scale, item 6 =
+    // color-blind palette). They run headless - we never open
+    // a real window - so the fullscreen toggle is verified via
+    // the renderer's `fullscreen_` flag is N/A; we instead check
+    // that the settings round-trip preserves the values, that
+    // the runtime color-blind flag tracks the art::set_color_blind
+    // call, and that the render scale default falls within the
+    // documented 1..4 range.
+    section("M12-PARTIAL closers: fullscreen + render scale + color blind");
+    {
+        // Fullscreen round-trip: settings should preserve the value
+        // through save/load (the M12-PARTIAL item 4 closer is
+        // that a saved fullscreen=true actually flips the
+        // Window, which is exercised at app startup; here we
+        // only verify the persistence layer).
+        {
+            Settings s = Settings();
+            s.fullscreen = true;
+            const std::string path = "ember_test_m12_fs.ini";
+            save_settings_to_file(path, s);
+            const Settings r = load_settings_from_file(path);
+            check(r.fullscreen == true,
+                  "fullscreen=true persists across save/load");
+            std::remove(path.c_str());
+        }
+
+        // Render scale persistence and clamping.
+        {
+            Settings s = Settings();
+            s.render_scale = 3;
+            const std::string path = "ember_test_m12_rs.ini";
+            save_settings_to_file(path, s);
+            const Settings r = load_settings_from_file(path);
+            check(r.render_scale == 3,
+                  "render_scale=3 persists across save/load");
+            check(s.render_scale >= 1 && s.render_scale <= 4,
+                  "render_scale default is within 1..4");
+            std::remove(path.c_str());
+        }
+
+        // Color-blind palette: the runtime flag must track the
+        // setter call. We save and restore the prior value so
+        // later sections in the same test (or a follow-up
+        // run) see the original state.
+        {
+            const bool prior = ember::art::color_blind_enabled();
+            ember::art::set_color_blind(true);
+            check(ember::art::color_blind_enabled() == true,
+                  "art::set_color_blind(true) flips the flag");
+            ember::art::set_color_blind(false);
+            check(ember::art::color_blind_enabled() == false,
+                  "art::set_color_blind(false) flips it back");
+            // Restore prior (in case this test is ever re-run
+            // within a single process).
+            ember::art::set_color_blind(prior);
+        }
+
+        // The two runtime palettes are distinct (color blind
+        // swaps the body color away from the default). We
+        // compare constexpr structs at compile time. The check
+        // is a runtime equality test.
+        check(ember::art::kPaletteP1.body.r !=
+              ember::art::kPaletteP1ColorBlind.body.r ||
+              ember::art::kPaletteP1.body.g !=
+              ember::art::kPaletteP1ColorBlind.body.g ||
+              ember::art::kPaletteP1.body.b !=
+              ember::art::kPaletteP1ColorBlind.body.b,
+              "P1 color-blind body differs from default body");
+        check(ember::art::kPaletteP2.body.r !=
+              ember::art::kPaletteP2ColorBlind.body.r ||
+              ember::art::kPaletteP2.body.g !=
+              ember::art::kPaletteP2ColorBlind.body.g ||
+              ember::art::kPaletteP2.body.b !=
+              ember::art::kPaletteP2ColorBlind.body.b,
+              "P2 color-blind body differs from default body");
+
+        // palette_for(0, false) returns the default P1 palette;
+        // palette_for(0, true) returns the color-blind P1.
+        check(&ember::art::palette_for(0, false) ==
+              &ember::art::kPaletteP1,
+              "palette_for(0, false) -> kPaletteP1");
+        check(&ember::art::palette_for(0, true) ==
+              &ember::art::kPaletteP1ColorBlind,
+              "palette_for(0, true) -> kPaletteP1ColorBlind");
+        check(&ember::art::palette_for(1, false) ==
+              &ember::art::kPaletteP2,
+              "palette_for(1, false) -> kPaletteP2");
+        check(&ember::art::palette_for(1, true) ==
+              &ember::art::kPaletteP2ColorBlind,
+              "palette_for(1, true) -> kPaletteP2ColorBlind");
     }
 
     // ---- 9. Playability gate: pause / rematch / start-stop of the

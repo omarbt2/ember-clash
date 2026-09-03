@@ -142,7 +142,7 @@ Settings load_settings_from_file(const std::string& path) {
     if (s.music_volume < 0)    s.music_volume = 0;
     if (s.music_volume > 100)  s.music_volume = 100;
     if (s.render_scale < 1)    s.render_scale = 1;
-    if (s.render_scale > 2)    s.render_scale = 2;
+    if (s.render_scale > 4)    s.render_scale = 4;
 
     return s;
 }

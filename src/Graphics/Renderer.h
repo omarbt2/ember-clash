@@ -68,6 +68,15 @@ public:
     // offset and is the default at construction.
     void set_view_offset(float dx, float dy);
 
+    // Render-scale multiplier. 1.0 = identity (1:1 logical to window).
+    // 2.0 = each logical pixel becomes 2x2 device pixels. We
+    // implement this via SDL_RenderSetScale so the rest of the
+    // rendering pipeline is unchanged. Render scale is set at the
+    // App level whenever settings.render_scale changes; a value of
+    // 1 means the game's internal resolution is rendered 1:1.
+    void set_render_scale(float s);
+    float render_scale() const { return render_scale_; }
+
     // Presents the current back buffer.
     void present();
 
@@ -96,6 +105,7 @@ private:
     // never touch it (e.g. the test harnesses) get the unmodified output.
     float         view_offset_x_{0.0f};
     float         view_offset_y_{0.0f};
+    float         render_scale_{1.0f};
 };
 
 } // namespace ember

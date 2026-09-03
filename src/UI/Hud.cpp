@@ -3,6 +3,7 @@
 #include "Core/Config.h"
 #include "Core/Math.h"
 #include "Gameplay/AiController.h"
+#include "Gameplay/ArtConfig.h"
 #include "Gameplay/Fighter.h"
 #include "Gameplay/Match.h"
 #include "Graphics/Renderer.h"
@@ -100,14 +101,20 @@ void Hud::draw_fighter_card(Renderer& renderer, const Fighter& fighter, int side
 
     // Damage % rendered as bitmap-font text. Left side: left-aligned; right
     // side: right-aligned. Text is 2x scale for readability at 1280x720.
+    // The ink color picks the color-blind palette when that setting is
+    // active, so players with reduced color-vision get a high-contrast
+    // yellow readout instead of the default near-white.
     const std::string dmg = format_damage(fighter.damage_percent());
     const int dmg_w = static_cast<int>(dmg.size()) * kAdvance * kDamageFontScale
                     - kCellPx * kDamageFontScale;
     const int dmg_x = (side == 0) ? card_x
                                    : card_x + kCardWidth - dmg_w;
     const int dmg_y = card_y + kStockPipH + kDamageY;
+    const config::Color dmg_color = art::color_blind_enabled()
+        ? config::kHudTextColorColorBlind
+        : config::kHudTextColor;
     draw_text_scaled(renderer, dmg_x, dmg_y, dmg.c_str(),
-                     config::kHudTextColor, kDamageFontScale);
+                     dmg_color, kDamageFontScale);
 }
 
 void Hud::draw_damage_floats(Renderer& renderer, const Fighter& fighter) {
@@ -117,7 +124,12 @@ void Hud::draw_damage_floats(Renderer& renderer, const Fighter& fighter) {
     const int x = static_cast<int>(fighter.body().x + fighter.body().w * 0.5f
                                    - w * 0.5f);
     const int y = static_cast<int>(fighter.body().y - kGlyphH - 4);
-    draw_text(renderer, x, y, dmg.c_str(), config::kHudTextColor);
+    // Same color-blind swap as draw_fighter_card so the floating
+    // damage readout matches the card-strip damage.
+    const config::Color dmg_color = art::color_blind_enabled()
+        ? config::kHudTextColorColorBlind
+        : config::kHudTextColor;
+    draw_text(renderer, x, y, dmg.c_str(), dmg_color);
 }
 
 void Hud::draw_hit_spark(Renderer& renderer, float x, float y, int age) {

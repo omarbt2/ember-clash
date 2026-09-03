@@ -53,4 +53,12 @@ inline constexpr Color kHudStockLostColor{  60,  60,  70, 255 };
 inline constexpr Color kKoBannerColor   { 250, 230,  90, 255 };
 inline constexpr Color kHitSparkColor   { 255, 255, 200, 255 };
 
+// Color-blind HUD ink. Used in place of kHudTextColor when
+// Settings::color_blind_palette is on. The colour is bright
+// yellow (CUD-recommended) so the damage % stays distinct
+// against any background the arena could draw. The KO banner
+// keeps kKoBannerColor (already yellow); only the damage %
+// ink is swapped.
+inline constexpr Color kHudTextColorColorBlind{ 255, 220,  60, 255 };
+
 } // namespace ember::config
