@@ -9,6 +9,7 @@
 #include "Gameplay/ArtConfig.h"
 #include "Gameplay/InputMap.h"
 #include "Gameplay/Match.h"
+#include "Gameplay/Fighter.h"
 #include "Graphics/Renderer.h"
 #include "Graphics/Window.h"
 #include "Input/Gamepad.h"
@@ -19,6 +20,8 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_keycode.h>
 
+#include <algorithm>
+#include <cmath>
 #include <string>
 
 namespace ember {
@@ -142,9 +145,63 @@ int App::run() {
 
     running_ = true;
 
+    // P17: fixed-timestep accumulator. PhysicsConfig and
+    // CombatConfig constants are all in "per 60 Hz tick" units
+    // (e.g. kWalkSpeed=6.0 px/tick, kHitSparkFrames=6 ticks,
+    // kIntroBannerReadyFrames=60 ticks = 1 second). Running the
+    // simulation more than 60 times per second on a high-refresh
+    // display made every action, attack, and AI decision roughly
+    // N times faster than the numbers promised. Conversely,
+    // running it at 30 fps (windowed, dragging) would make the
+    // game feel sluggish. The accumulator below is the standard
+    // "Glenn Fiedler" fix: render as fast as the display can
+    // show frames, simulate exactly kTargetFps times per second
+    // (or in catch-up chunks after a stall, capped at
+    // kMaxSimTicksPerFrame so a long pause cannot time-warp the
+    // match).
+    const double sim_step = clock_->fixed_step_seconds();
+    sim_accumulator_      = 0.0;
+
     while (running_) {
         clock_->update();
-        step(clock_->delta_seconds());
+        const double frame_dt = clock_->delta_seconds();
+        sim_accumulator_     += frame_dt;
+
+        // 1) Handle events ONCE per render frame so the player
+        //    can press quit / pause even on a 240 Hz monitor
+        //    without queueing four quit events per visible frame.
+        handle_events();
+        if (input_->quit_requested()) {
+            running_ = false;
+            break;
+        }
+
+        // 2) Run 0..N sim ticks at exactly sim_step each.
+        int sim_ticks = 0;
+        while (sim_accumulator_ >= sim_step
+               && sim_ticks < kMaxSimTicksPerFrame) {
+            // update() with a fixed sim_step; the match's
+            // internal counters (match_startup_ticks_,
+            // live_ticks_, attack cooldowns, AI state_ticks_)
+            // are all expressed in ticks so this is correct
+            // and deterministic.
+            update(sim_step);
+            sim_accumulator_ -= sim_step;
+            ++sim_ticks;
+        }
+        // If we hit the cap (long stall, breakpoint, OS hiccup),
+        // discard the leftover time so the next frame does not
+        // also try to catch up. The player will see a tiny jump
+        // which is much better than a 15-tick time-warp.
+        if (sim_ticks >= kMaxSimTicksPerFrame) {
+            sim_accumulator_ = 0.0;
+        }
+        // 3) Render EXACTLY once per visible frame, using the
+        //    post-tick state. The previous code called step()
+        //    which rendered after every sim tick, causing
+        //    duplicate frames on a 144/240 Hz monitor and
+        //    burn-in of sprite state in SDL's texture cache.
+        render();
     }
 
     shutdown();
@@ -266,32 +323,151 @@ void App::update(double dt) {
 }
 
 void App::render() {
+    // P17: compute the camera position so the action stays centred
+    // and the fighters feel close to the camera. The previous
+    // "no camera" code showed the entire 1280x720 stage at once,
+    // which on a 1920x1080 monitor produced tiny letterboxed
+    // fighters (~96x128 px) and on a 4K monitor made them nearly
+    // invisible. The camera is render-only: it does not affect
+    // physics, hitbox resolution, or test state.
+    if (match_) {
+        // 1) Find the focus point. Use the midpoint of the two
+        //    live fighters; if one is dead, anchor on the live
+        //    one; if both are dead, hold the last camera
+        //    position so the world does not jump.
+        const Fighter& f0 = match_->fighter(0);
+        const Fighter& f1 = match_->fighter(1);
+        bool f0_alive = !f0.is_dead();
+        bool f1_alive = !f1.is_dead();
+        double focus_x;
+        double focus_y;
+        if (f0_alive && f1_alive) {
+            focus_x = (f0.body().x + f1.body().x) * 0.5;
+            focus_y = (f0.body().y + f1.body().y) * 0.5;
+        } else if (f0_alive) {
+            focus_x = f0.body().x;
+            focus_y = f0.body().y;
+        } else if (f1_alive) {
+            focus_x = f1.body().x;
+            focus_y = f1.body().y;
+        } else {
+            focus_x = camera_x_ + static_cast<double>(config::kRenderWidth) * 0.5;
+            focus_y = camera_y_ + static_cast<double>(config::kRenderHeight) * 0.5;
+        }
+        // Add a vertical bias so the floor is in the lower third
+        // of the screen (Smash convention). A bias of +120 puts
+        // the focus point slightly above centre, so the floor
+        // shows below and the sky above.
+        focus_y += 120.0;
+
+        // 2) Smooth toward the focus. A 1.0 factor would snap;
+        //    0.18 feels responsive but not jittery at 60Hz.
+        const double kFollowStrength = 0.18;
+        // P17: the render scale is settings_.render_scale (1 by
+        // default) times the match-zoom 1.3x. The visible viewport
+        // in world space is therefore (kRenderWidth / world_scale)
+        // by (kRenderHeight / world_scale). Centring a focus point
+        // on the screen means offsetting the camera by
+        //   (focus - viewport_size / 2)
+        // so the rendered position (focus - view) lands in the
+        // middle of the visible window after SDL's scale.
+        const double world_scale =
+            std::max(0.001,
+                static_cast<double>(settings_.render_scale) * 1.3);
+        const double visible_w =
+            static_cast<double>(config::kRenderWidth)  / world_scale;
+        const double visible_h =
+            static_cast<double>(config::kRenderHeight) / world_scale;
+        const double target_cam_x = focus_x - visible_w * 0.5;
+        const double target_cam_y = focus_y - visible_h * 0.5;
+        camera_x_ += (target_cam_x - camera_x_) * kFollowStrength;
+        camera_y_ += (target_cam_y - camera_y_) * kFollowStrength;
+
+        // 3) Clamp so the camera never reveals beyond the arena
+        //    edges. The world spans [0, kRenderWidth] x
+        //    [0, kRenderHeight]; the camera (top-left) must
+        //    stay inside the arena minus the visible viewport
+        //    so the world always covers the full screen.
+        if (camera_x_ < 0.0) camera_x_ = 0.0;
+        if (camera_y_ < 0.0) camera_y_ = 0.0;
+        const double max_cam_x =
+            std::max(0.0,
+                static_cast<double>(config::kRenderWidth) - visible_w);
+        const double max_cam_y =
+            std::max(0.0,
+                static_cast<double>(config::kRenderHeight) - visible_h);
+        if (camera_x_ > max_cam_x) camera_x_ = max_cam_x;
+        if (camera_y_ > max_cam_y) camera_y_ = max_cam_y;
+    }
+
     // M12 accessibility: when screen_shake is disabled, the post-
     // KO shake amount is clamped to zero. The match's
     // ko_shake_offset_*() functions are the authoritative source;
     // we just choose whether to forward them to the renderer.
     if (match_) {
+        float shake_x = 0.0f;
+        float shake_y = 0.0f;
         if (settings_.screen_shake) {
-            renderer_->set_view_offset(
-                match_->ko_shake_offset_x(),
-                match_->ko_shake_offset_y());
-        } else {
-            renderer_->set_view_offset(0, 0);
+            shake_x = match_->ko_shake_offset_x();
+            shake_y = match_->ko_shake_offset_y();
         }
+        renderer_->set_view_offset(
+            static_cast<float>(camera_x_) + shake_x,
+            static_cast<float>(camera_y_) + shake_y);
     }
     renderer_->clear(config::kClearColor);
+
+    // P17: when the match is playing, apply a 1.3x render scale so
+    // the fighters feel "close to camera" instead of tiny dots in
+    // a 1280x720 sea. The scale is applied via the renderer's
+    // own set_render_scale (which forwards to SDL_RenderSetScale)
+    // and is RESET to 1.0 before the HUD/menu render pass so
+    // screen-space UI stays readable. Without this reset, the
+    // HUD would also blow up by 1.3x and overlap the fighters.
+    const bool apply_match_zoom =
+        match_ && (menu_ == nullptr
+                   || menu_->state() == Menu::State::kPlay);
+    if (apply_match_zoom) {
+        renderer_->set_render_scale(
+            static_cast<float>(settings_.render_scale) * 1.3f);
+    } else {
+        renderer_->set_render_scale(
+            static_cast<float>(settings_.render_scale));
+    }
 
     // Decide what to draw: in kPlay we just draw the match. In
     // every other state we draw the match behind a translucent
     // menu overlay so the screen does not jump to a flat panel.
     if (menu_ && menu_->state() != Menu::State::kPlay) {
         if (match_) {
+            // Match::render draws the arena, fighters, AND the
+            // HUD in a single call, so the zoom above applies to
+            // all of them. The menu (which is screen-space and
+            // would look wrong at 1.3x) is reset to 1.0 below.
             match_->render(*renderer_);
         }
+        // P17: reset the render scale BEFORE the menu so the
+        // menu UI is drawn at the user's selected render_scale
+        // (1.0 by default), not the match-zoom 1.3x.
+        renderer_->set_render_scale(
+            static_cast<float>(settings_.render_scale));
         menu_->render(*renderer_);
     } else if (match_) {
         match_->render(*renderer_);
+        // P17: in kPlay the HUD inside Match::render was drawn
+        // at the match-zoom scale, which is fine for the
+        // fighter cards/damage floats (they should grow with
+        // the action) but anything else screen-space would
+        // need a reset here. Currently nothing else is drawn
+        // after the match in kPlay, so this is a no-op kept
+        // for symmetry with the menu branch.
     }
+
+    // P17: always restore the user's render_scale before
+    // present() so the next frame's clear() and any future
+    // screen-space draws are at the correct scale.
+    renderer_->set_render_scale(
+        static_cast<float>(settings_.render_scale));
 
     renderer_->present();
 }

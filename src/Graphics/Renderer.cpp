@@ -49,10 +49,29 @@ Renderer::Renderer(Window& window) {
         return;
     }
 
+    // P17: request vsync at renderer creation. The accumulator
+    // in App::run() is the authoritative cap, but vsync is a
+    // useful belt-and-suspenders: it keeps the GPU from blasting
+    // 500 FPS through the present queue, and on a 60 Hz display
+    // it makes the frame cap implicit so the accumulator never
+    // has to do work. On a 144/240 Hz display the accumulator
+    // still runs the simulation at exactly 60 Hz while the
+    // display shows 144+ frames per second of static state.
+    //
+    // SDL3 changed the API: the old SDL_RENDERER_PRESENTVSYNC
+    // creation flag was removed; vsync is now a per-renderer
+    // property toggled by SDL_SetRenderVSync(1). 1 means
+    // "sync to display refresh".
     SDL_Renderer* raw = SDL_CreateRenderer(raw_window, nullptr);
     if (!raw) {
         Logger::error(std::string{"SDL_CreateRenderer failed: "} + SDL_GetError());
         return;
+    }
+    if (!SDL_SetRenderVSync(raw, 1)) {
+        // Not fatal: the accumulator in App::run() still caps
+        // the simulation rate, and some displays simply do not
+        // support adaptive vsync. We log it and continue.
+        Logger::warn(std::string{"SDL_SetRenderVSync: "} + SDL_GetError());
     }
 
     renderer_ = raw;

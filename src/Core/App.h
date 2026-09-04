@@ -87,6 +87,33 @@ private:
 
     bool                          sdl_initialized_{false};
     bool                          running_{false};
+    // P17: fixed-timestep accumulator. The simulation now runs at
+    // exactly config::kTargetFps (60 Hz) regardless of how fast the
+    // desktop loop spins. The previous "one update per render frame"
+    // code made the game feel hyper-fast on a 144 Hz monitor (and
+    // disgustingly slow on a 30 Hz one) - every per-tick constant in
+    // PhysicsConfig.h and CombatConfig.h assumes 60 Hz, so the only
+    // way to honour that contract on arbitrary hardware is to cap
+    // the simulation rate.
+    double                        sim_accumulator_{0.0};
+    // Hard cap on the number of catch-up sim ticks per render frame.
+    // If the desktop stalled for 250 ms (focus loss, breakpoint, etc.)
+    // we do not want to run 15 sim ticks in one go and "fast forward"
+    // the game state. Three ticks is enough to absorb a single missed
+    // frame; the rest of the wall time is dropped (the menu re-syncs
+    // when the user clicks back in).
+    static constexpr int          kMaxSimTicksPerFrame = 3;
+
+    // P17 camera state. The previous build had no camera: the entire
+    // 1280x720 stage was letterboxed into the window so the 96x128
+    // fighter sprites were small dots, especially when they were on
+    // opposite sides of the stage at spawn time. The camera below
+    // tracks the midpoint of the two live fighters and translates
+    // the world so the action is always centred. It does NOT scale
+    // (we keep the simulation pixels per render pixel ratio intact
+    // so a future zoom does not invalidate any test).
+    double                        camera_x_{0.0};
+    double                        camera_y_{0.0};
 };
 
 } // namespace ember
