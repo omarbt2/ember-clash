@@ -78,6 +78,14 @@ struct Settings {
     // cannot leave the player with no input.
     std::array<std::int32_t, 7> p1_bindings{0};
 
+    // P2 key bindings. M13.1: same shape as P1, defaults are the
+    // arrow-keys + numpad layout (distinct from P1's WASD+JKL).
+    // P2 is consumed by the AI in V1.0, but the rebind UI is
+    // shared between P1 and P2, so we persist both sets. A future
+    // 2P local mode (M9+) flips a switch and these are read by
+    // InputMap as-is.
+    std::array<std::int32_t, 7> p2_bindings{0};
+
     // Reset everything to compile-time defaults. Used by the
     // "Restore defaults" button on the settings screen and by the
     // unit tests.

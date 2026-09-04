@@ -91,6 +91,14 @@ void Settings::reset_to_defaults() {
     //   2 = jump,       3 = fast_fall,
     //   4 = jab,        5 = ftilt,       6 = nair
     p1_bindings = {{97, 100, 119, 115, 106, 107, 108}};
+
+    // P2 defaults: arrow-keys + numpad (distinct from P1's
+    // WASD+JKL). The literals are SDL_Keycode values:
+    //   LEFT=1073741904, RIGHT=1073741903, UP=1073741906,
+    //   DOWN=1073741905, KP_1=1073741913, KP_2=1073741914,
+    //   KP_3=1073741915. Hardcoded for the same reason as P1.
+    p2_bindings = {{1073741904, 1073741903, 1073741906, 1073741905,
+                    1073741913, 1073741914, 1073741915}};
 }
 
 bool Settings::operator==(const Settings& other) const {
@@ -107,7 +115,8 @@ bool Settings::operator==(const Settings& other) const {
         && p1_scheme      == other.p1_scheme
         && p2_scheme      == other.p2_scheme
         && ai_difficulty  == other.ai_difficulty
-        && p1_bindings    == other.p1_bindings;
+        && p1_bindings    == other.p1_bindings
+        && p2_bindings    == other.p2_bindings;
 }
 
 Settings load_settings_from_file(const std::string& path) {
@@ -153,6 +162,17 @@ Settings load_settings_from_file(const std::string& path) {
         else if (read_int (t, "p1_jab",         s.p1_bindings[4])) {}
         else if (read_int (t, "p1_ftilt",       s.p1_bindings[5])) {}
         else if (read_int (t, "p1_nair",        s.p1_bindings[6])) {}
+        // P2 key bindings. M13.1: same shape as P1. Older
+        // settings files (M13 and earlier) have no P2 keys; the
+        // p2_bindings array is left at its reset_to_defaults
+        // values in that case.
+        else if (read_int (t, "p2_move_left",   s.p2_bindings[0])) {}
+        else if (read_int (t, "p2_move_right",  s.p2_bindings[1])) {}
+        else if (read_int (t, "p2_jump",        s.p2_bindings[2])) {}
+        else if (read_int (t, "p2_fast_fall",   s.p2_bindings[3])) {}
+        else if (read_int (t, "p2_jab",         s.p2_bindings[4])) {}
+        else if (read_int (t, "p2_ftilt",       s.p2_bindings[5])) {}
+        else if (read_int (t, "p2_nair",        s.p2_bindings[6])) {}
         // Unknown key: silently ignored.
     }
 
@@ -166,14 +186,23 @@ Settings load_settings_from_file(const std::string& path) {
     if (s.music_volume > 100)  s.music_volume = 100;
     if (s.render_scale < 1)    s.render_scale = 1;
     if (s.render_scale > 4)    s.render_scale = 4;
-    // P1 key bindings: the InputManager tracks 512 slots (0..511).
-    // A negative value or value beyond 511 is a corrupted file
-    // (e.g. a typo) - clamp to 0 = SDLK_UNKNOWN so the slot is
-    // silently unbound rather than indexing out of bounds. The
-    // remap UI also rejects out-of-range keycodes at capture time.
+    // P1 / P2 key bindings: the InputManager tracks 512 slots
+    // (0..511) for keyboard poll, but the remap UI stores the
+    // raw SDL_Keycode value (which can be in the 0x40000000
+    // range for SDLK_*_KP / SDLK_LEFT / SDLK_RIGHT etc.).
+    // A negative value is corrupted; we clamp to 0 = SDLK_UNKNOWN
+    // so the slot is silently unbound rather than indexing out
+    // of bounds. The remap UI also rejects negative keycodes at
+    // capture time. Upper bound is INT32_MAX so all valid
+    // SDL_Keycode values pass through.
     for (std::size_t i = 0; i < s.p1_bindings.size(); ++i) {
-        if (s.p1_bindings[i] < 0 || s.p1_bindings[i] > 511) {
+        if (s.p1_bindings[i] < 0) {
             s.p1_bindings[i] = 0;
+        }
+    }
+    for (std::size_t i = 0; i < s.p2_bindings.size(); ++i) {
+        if (s.p2_bindings[i] < 0) {
+            s.p2_bindings[i] = 0;
         }
     }
 
@@ -207,6 +236,13 @@ bool save_settings_to_file(const std::string& path, const Settings& s) {
     write_int (o, "p1_jab",         s.p1_bindings[4]);
     write_int (o, "p1_ftilt",       s.p1_bindings[5]);
     write_int (o, "p1_nair",        s.p1_bindings[6]);
+    write_int (o, "p2_move_left",   s.p2_bindings[0]);
+    write_int (o, "p2_move_right",  s.p2_bindings[1]);
+    write_int (o, "p2_jump",        s.p2_bindings[2]);
+    write_int (o, "p2_fast_fall",   s.p2_bindings[3]);
+    write_int (o, "p2_jab",         s.p2_bindings[4]);
+    write_int (o, "p2_ftilt",       s.p2_bindings[5]);
+    write_int (o, "p2_nair",        s.p2_bindings[6]);
 
     const std::string tmp = path + ".tmp";
     {

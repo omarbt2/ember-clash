@@ -12,6 +12,7 @@
 #include "Graphics/Renderer.h"
 #include "Graphics/Window.h"
 #include "Input/Gamepad.h"
+#include "Input/Haptics.h"
 #include "Input/InputManager.h"
 #include "UI/Menu.h"
 
@@ -74,6 +75,15 @@ bool App::initialize() {
     clock_   = std::make_unique<Clock>();
     input_   = std::make_unique<InputManager>();
     gamepad_ = std::make_unique<Gamepad>();
+    // M14: Haptics binds to the gamepad so play_*() can route
+    // rumble effects. The Haptics instance is constructed
+    // before the Audio object so its destructor runs after
+    // the Audio one (App destroys members in reverse
+    // construction order); the order matters because
+    // Haptics' destructor issues a final stop_rumble() and
+    // we want that to run while Gamepad is still alive.
+    haptics_ = std::make_unique<Haptics>();
+    haptics_->bind_gamepad(gamepad_.get());
     audio_   = std::make_unique<Audio>();
     audio_->initialize();
     menu_    = std::make_unique<Menu>();
@@ -87,16 +97,22 @@ bool App::initialize() {
     // Fighter construction time.
     art::set_color_blind(settings_.color_blind_palette);
 
-    // M13: push the saved P1 key bindings into the live
-    // InputMap. The InputMap's static storage starts at the
-    // compile-time defaults; without this call a user who
-    // rebinds A to a non-default key would still see the
-    // fighter responding to the old key on the very first
-    // frame. The apply function is a no-op if the array is
-    // empty (it isn't, but the guard makes the intent clear).
+    // M13 / M13.1: push the saved P1 and P2 key bindings
+    // into the live InputMap. The InputMap's static storage
+    // starts at the compile-time defaults; without this call
+    // a user who rebinds A to a non-default key would still
+    // see the fighter responding to the old key on the very
+    // first frame. P2 is consumed by the AI in V1.0 so the
+    // remap has no immediate in-game effect, but the AI
+    // controller reads the same KeyBindings storage for
+    // future 2P local mode and the settings file must round-
+    // trip the values regardless.
     InputMap::apply_p1_from_ints(
         settings_.p1_bindings.data(),
         settings_.p1_bindings.size());
+    InputMap::apply_p2_from_ints(
+        settings_.p2_bindings.data(),
+        settings_.p2_bindings.size());
 
     // Create the first match instance. The menu starts in
     // kTitle and gates whether this match is allowed to tick.
@@ -157,6 +173,16 @@ void App::handle_events() {
 }
 
 void App::update(double dt) {
+    // Snapshot the match state BEFORE ticking so we can detect
+    // edge transitions (a hit landing this frame, the phase
+    // flipping to MatchOver). M14 haptics hooks off these
+    // edges.
+    const Match::Phase prev_phase = match_ ? match_->phase()
+                                           : Match::Phase::Fighting;
+    const bool prev_hit_valid = match_
+        ? match_->last_hit_position_for_test().valid
+        : false;
+
     if (menu_) {
         menu_->update(*input_, *gamepad_, *audio_);
     }
@@ -189,6 +215,26 @@ void App::update(double dt) {
     if (match_ && menu_ && !menu_->blocks_simulation()) {
         match_->update(*input_, dt);
     }
+
+    // M14 haptics: route game events to the controller. The
+    // routing is intentionally simple - we do not try to
+    // detect every single attack type; we just fire the
+    // "strong hit" cue on every fresh hit, and the "KO" cue
+    // on the phase transition. Edge detection (prev vs
+    // current) is essential: per-frame detection would
+    // either re-trigger every tick (causing a permanent
+    // rumble) or fire while the menu is open.
+    if (match_ && haptics_) {
+        const auto last_hit = match_->last_hit_position_for_test();
+        if (last_hit.valid && !prev_hit_valid) {
+            haptics_->play_strong_hit();
+        }
+        if (match_->phase() == Match::Phase::MatchOver
+            && prev_phase != Match::Phase::MatchOver) {
+            haptics_->play_ko();
+        }
+    }
+    if (haptics_) haptics_->update();
 
     if (settings_dirty_) {
         last_settings_flush_ += dt;
@@ -301,22 +347,33 @@ void App::handle_menu_action() {
             break;
         }
         case Menu::Action::kApplyRemap: {
-            // M13: the player committed a key rebind in the
-            // remap-capture sub-state. The menu stored the slot
-            // index and keycode; we copy them into the live
-            // Settings, push the new bindings into InputMap so
-            // the next sampled frame uses them, mark the
-            // settings file dirty, and immediately flush so
-            // a crash before the next menu close does not lose
-            // the rebind.
-            const int slot = menu_->pending_remap_slot();
-            const int kc   = menu_->pending_remap_keycode();
-            if (slot >= 0 && slot < 7 && kc >= 0 && kc <= 511) {
-                settings_.p1_bindings[static_cast<std::size_t>(slot)] =
-                    static_cast<std::int32_t>(kc);
-                InputMap::apply_p1_from_ints(
-                    settings_.p1_bindings.data(),
-                    settings_.p1_bindings.size());
+            // M13 / M13.1: the player committed a key rebind
+            // in the remap-capture sub-state. The menu stored
+            // the player index, slot index, and keycode; we
+            // copy them into the live Settings (picking the
+            // correct array by player index), push the new
+            // bindings into InputMap so the next sampled
+            // frame uses them, mark the settings file dirty,
+            // and immediately flush so a crash before the
+            // next menu close does not lose the rebind.
+            const int player = menu_->pending_remap_player();
+            const int slot   = menu_->pending_remap_slot();
+            const int kc     = menu_->pending_remap_keycode();
+            if (slot >= 0 && slot < 7 && kc >= 0 && kc <= 511
+                && (player == 0 || player == 1)) {
+                if (player == 0) {
+                    settings_.p1_bindings[static_cast<std::size_t>(slot)] =
+                        static_cast<std::int32_t>(kc);
+                    InputMap::apply_p1_from_ints(
+                        settings_.p1_bindings.data(),
+                        settings_.p1_bindings.size());
+                } else {
+                    settings_.p2_bindings[static_cast<std::size_t>(slot)] =
+                        static_cast<std::int32_t>(kc);
+                    InputMap::apply_p2_from_ints(
+                        settings_.p2_bindings.data(),
+                        settings_.p2_bindings.size());
+                }
                 settings_dirty_ = true;
                 flush_settings();
             }

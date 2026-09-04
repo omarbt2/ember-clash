@@ -83,6 +83,7 @@ set(EMBER_SOURCES
     src/Graphics/Window.cpp
 
     src/Input/Gamepad.cpp
+    src/Input/Haptics.cpp
     src/Input/InputManager.cpp
 
     src/Physics/Motion.cpp

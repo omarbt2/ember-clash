@@ -142,4 +142,46 @@ bool Gamepad::nav_down  () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_DOWN]
 bool Gamepad::confirm   () const { return pressed(SDL_GAMEPAD_BUTTON_SOUTH) || pressed(SDL_GAMEPAD_BUTTON_START); }
 bool Gamepad::cancel    () const { return pressed(SDL_GAMEPAD_BUTTON_EAST)  || pressed(SDL_GAMEPAD_BUTTON_BACK); }
 
+bool Gamepad::can_rumble() const {
+    if (!gamepad_) return false;
+    SDL_Joystick* joy = SDL_GetGamepadJoystick(gamepad_);
+    if (!joy) return false;
+    SDL_PropertiesID props = SDL_GetJoystickProperties(joy);
+    if (!props) return false;
+    return SDL_GetBooleanProperty(props, SDL_PROP_JOYSTICK_CAP_RUMBLE_BOOLEAN, false);
+}
+
+void Gamepad::rumble(std::uint16_t low, std::uint16_t high, std::uint32_t duration_ms) {
+    // Record the call for the test harness even when there is
+    // no gamepad. The headless build never has a real device,
+    // so the SDL_RumbleJoystick branch is skipped; the counter
+    // is still incremented so tests can verify the call
+    // happened.
+    ++test_rumble_call_count_;
+    test_last_rumble_low_  = low;
+    test_last_rumble_high_ = high;
+    test_last_rumble_ms_   = static_cast<int>(duration_ms);
+
+    if (!can_rumble()) return;
+    SDL_Joystick* joy = SDL_GetGamepadJoystick(gamepad_);
+    // Duration is the SDL_RumbleJoystick-internal stop time.
+    // SDL also stops the rumble automatically when duration_ms
+    // has elapsed; callers do not need to schedule a follow-up
+    // stop call. We pass the duration verbatim.
+    if (!SDL_RumbleJoystick(joy, low, high, duration_ms)) {
+        Logger::warn(std::string{"Gamepad: SDL_RumbleJoystick failed: "}
+                     + SDL_GetError());
+    }
+}
+
+void Gamepad::stop_rumble() {
+    ++test_stop_call_count_;
+    if (!can_rumble()) return;
+    SDL_Joystick* joy = SDL_GetGamepadJoystick(gamepad_);
+    if (!SDL_RumbleJoystick(joy, 0, 0, 0)) {
+        Logger::warn(std::string{"Gamepad: SDL_RumbleJoystick(stop) failed: "}
+                     + SDL_GetError());
+    }
+}
+
 } // namespace ember

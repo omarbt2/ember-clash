@@ -113,6 +113,14 @@ public:
     // KeyBindings (Gameplay) - Core stays a leaf layer.
     static void apply_p1_from_ints(const std::int32_t* keys, std::size_t count);
 
+    // M13.1: same shape as apply_p1_from_ints, but writes the
+    // P2 storage. Called by App on init and on every
+    // kApplyRemap action that targets a P2 slot. P2 is
+    // consumed by the AI in V1.0, but the remap UI persists
+    // the bindings so a future 2P local mode does not have
+    // to add a settings schema migration.
+    static void apply_p2_from_ints(const std::int32_t* keys, std::size_t count);
+
     // Returns a short, human-readable label for an SDL_Keycode
     // suitable for the remap menu (e.g. SDLK_A -> "A",
     // SDLK_LEFT -> "<-", SDLK_SPACE -> "SPACE"). Writes to

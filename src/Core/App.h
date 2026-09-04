@@ -9,6 +9,7 @@ namespace ember {
 class Audio;
 class Clock;
 class Gamepad;
+class Haptics;
 class InputManager;
 class Match;
 class Menu;
@@ -73,6 +74,7 @@ private:
     std::unique_ptr<Clock>        clock_;
     std::unique_ptr<InputManager> input_;
     std::unique_ptr<Gamepad>      gamepad_;
+    std::unique_ptr<Haptics>      haptics_;
     std::unique_ptr<Audio>        audio_;
     std::unique_ptr<Menu>         menu_;
     std::unique_ptr<Match>        match_;

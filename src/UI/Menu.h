@@ -152,8 +152,25 @@ public:
     // player commits a key; App reads them on the next
     // frame's consume_action loop, writes them into the
     // Settings struct, and clears the pending state.
+    int  pending_remap_player()  const { return pending_remap_player_; }
     int  pending_remap_slot()    const { return pending_remap_slot_; }
     int  pending_remap_keycode() const { return pending_remap_keycode_; }
+
+    // M13.1: test seam. Returns the entry list for a state
+    // without driving a frame. Used by the M12/M13.1 P2
+    // surface test to count rows without SDL. Returns the
+    // entries as currently built; the caller must
+    // set_state_for_test(kSettings) first to ensure the
+    // settings_entries_ list is fresh.
+    const std::vector<Entry>& entries_for_state_for_test(State s) const {
+        return entries_for_state(s);
+    }
+    // M13.1: test seam. Forces a rebuild of the settings
+    // entry list. Production code triggers this implicitly
+    // on every state entry and on every settings edit; the
+    // test harness drives the rebuild explicitly so the
+    // M12 P2 surface test does not need a fake SDL window.
+    void rebuild_settings_entries_for_test() { rebuild_settings_entries(); }
 
 private:
     // State-local helpers.
@@ -237,9 +254,16 @@ private:
     // -----------------------------------------------------------------
     bool remap_capture_active_{false};
     int  remap_slot_{-1};
+    // M13.1: 0 = P1, 1 = P2. The remap UI now exposes P2
+    // bindings too (P2 is consumed by the AI in V1.0 but the
+    // remap state machine is identical, so we keep one piece
+    // of UI rather than two). pending_remap_player_ is the
+    // player index written into the action that App handles.
+    int  remap_player_{0};
     int  remap_pulse_ticks_{0};
     // Public: read-only access for App when handling
     // Action::kApplyRemap.
+    int  pending_remap_player_{-1};
     int  pending_remap_slot_{-1};
     int  pending_remap_keycode_{0};
 };

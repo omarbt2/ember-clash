@@ -10,6 +10,7 @@
 #include <SDL3/SDL_keycode.h>
 
 #include <algorithm>
+#include <cstdio>
 #include <cstring>
 #include <string>
 
@@ -186,59 +187,76 @@ void Menu::rebuild_settings_entries() {
         settings_entries_.push_back(mkv("RENDER SCALE",
             (std::string("x") + std::to_string(settings_->render_scale)).c_str(),
             Action::kApplyRenderScale));
-        // M13: P1 rebindable keys. The label and value are
-        // read from the live settings struct so the user can
-        // see the active binding change as they rebind. The
-        // confirm handler in navigate() translates one of
-        // these indices into the remap-capture sub-state.
+        // M13 / M13.1: P1 and P2 rebindable keys. The label
+        // and value are read from the live settings struct so
+        // the user can see the active binding change as they
+        // rebind. The confirm handler in navigate() translates
+        // one of these indices into the remap-capture
+        // sub-state. P2 defaults to the arrow-keys / numpad
+        // layout, distinct from P1's WASD+JKL.
         char kbuf[16];
-        for (int i = 0; i < 7; ++i) {
-            const char* lbl = "P1 BIND";
-            switch (i) {
-                case 0: lbl = "P1 MOVE LEFT";   break;
-                case 1: lbl = "P1 MOVE RIGHT";  break;
-                case 2: lbl = "P1 JUMP";        break;
-                case 3: lbl = "P1 FAST FALL";   break;
-                case 4: lbl = "P1 JAB";         break;
-                case 5: lbl = "P1 FTILT";       break;
-                case 6: lbl = "P1 NAIR";        break;
-            }
-            const int kc = settings_->p1_bindings[i];
-            // The label is the action; the value is the current
-            // key (or "---" when SDLK_UNKNOWN). We use a small
-            // inline formatter so we don't pull InputMap into
-            // Menu (Menu is in UI; InputMap is in Gameplay).
-            // The byte buffer is enough for "Keypad 0" + NUL.
-            if (kc <= 0) {
-                settings_entries_.push_back(mkv(lbl, "---", Action::kNone));
-            } else if (kc >= 32 && kc < 127) {
-                // Printable ASCII = single character label.
-                kbuf[0] = static_cast<char>(kc);
-                kbuf[1] = '\0';
-                settings_entries_.push_back(mkv(lbl, kbuf, Action::kNone));
-            } else {
-                // Named keys: a tiny table covers everything we
-                // care about. SDL_GetKeyName would be more
-                // general but pulls SDL into UI for a 7-row
-                // table; the cost/benefit favours a literal
-                // table for the keys V1.0 P1 actually binds.
-                const char* name = "KEY";
-                switch (kc) {
-                    case 1073741906: name = "UP";    break;  // SDLK_UP
-                    case 1073741905: name = "DOWN";  break;  // SDLK_DOWN
-                    case 1073741904: name = "LEFT";  break;  // SDLK_LEFT
-                    case 1073741903: name = "RIGHT"; break;  // SDLK_RIGHT
-                    case 1073741885: name = "SPACE"; break;  // SDLK_SPACE
-                    case 1073741882: name = "TAB";   break;  // SDLK_TAB
-                    case 1073741893: name = "LSHIFT";break;  // SDLK_LSHIFT
-                    case 1073741894: name = "RSHIFT";break;  // SDLK_RSHIFT
-                    case 1073741898: name = "LCTRL"; break;  // SDLK_LCTRL
-                    case 1073741899: name = "RCTRL"; break;  // SDLK_RCTRL
-                    case 1073741908: name = "BACKSP";break;  // SDLK_BACKSPACE
-                    case 1073741911: name = "ESC";   break;  // SDLK_ESCAPE
-                    case 1073741912: name = "RETURN";break;  // SDLK_RETURN
+        for (int player = 0; player < 2; ++player) {
+            // Take a pointer to the underlying C array. The
+            // std::array decay to int* is non-const-only, so
+            // we go through .data() to be explicit and const-
+            // safe.
+            const int* slot_array = (player == 0)
+                ? settings_->p1_bindings.data()
+                : settings_->p2_bindings.data();
+            const char* pfx = (player == 0) ? "P1 " : "P2 ";
+            for (int i = 0; i < 7; ++i) {
+                const char* lbl = "BIND";
+                switch (i) {
+                    case 0: lbl = "MOVE LEFT";   break;
+                    case 1: lbl = "MOVE RIGHT";  break;
+                    case 2: lbl = "JUMP";        break;
+                    case 3: lbl = "FAST FALL";   break;
+                    case 4: lbl = "JAB";         break;
+                    case 5: lbl = "FTILT";       break;
+                    case 6: lbl = "NAIR";        break;
                 }
-                settings_entries_.push_back(mkv(lbl, name, Action::kNone));
+                // Compose the full label. We use a small
+                // stack buffer instead of std::string for the
+                // label because Entry stores char[].
+                char full_lbl[24];
+                std::snprintf(full_lbl, sizeof(full_lbl), "%s%s", pfx, lbl);
+                const int kc = slot_array[i];
+                // The label is the action; the value is the current
+                // key (or "---" when SDLK_UNKNOWN). We use a small
+                // inline formatter so we don't pull InputMap into
+                // Menu (Menu is in UI; InputMap is in Gameplay).
+                // The byte buffer is enough for "Keypad 0" + NUL.
+                if (kc <= 0) {
+                    settings_entries_.push_back(mkv(full_lbl, "---", Action::kNone));
+                } else if (kc >= 32 && kc < 127) {
+                    // Printable ASCII = single character label.
+                    kbuf[0] = static_cast<char>(kc);
+                    kbuf[1] = '\0';
+                    settings_entries_.push_back(mkv(full_lbl, kbuf, Action::kNone));
+                } else {
+                    // Named keys: a tiny table covers everything we
+                    // care about. SDL_GetKeyName would be more
+                    // general but pulls SDL into UI for a 7-row
+                    // table; the cost/benefit favours a literal
+                    // table for the keys V1.0 P1 actually binds.
+                    const char* name = "KEY";
+                    switch (kc) {
+                        case 1073741906: name = "UP";    break;  // SDLK_UP
+                        case 1073741905: name = "DOWN";  break;  // SDLK_DOWN
+                        case 1073741904: name = "LEFT";  break;  // SDLK_LEFT
+                        case 1073741903: name = "RIGHT"; break;  // SDLK_RIGHT
+                        case 1073741885: name = "SPACE"; break;  // SDLK_SPACE
+                        case 1073741882: name = "TAB";   break;  // SDLK_TAB
+                        case 1073741893: name = "LSHIFT";break;  // SDLK_LSHIFT
+                        case 1073741894: name = "RSHIFT";break;  // SDLK_RSHIFT
+                        case 1073741898: name = "LCTRL"; break;  // SDLK_LCTRL
+                        case 1073741899: name = "RCTRL"; break;  // SDLK_RCTRL
+                        case 1073741908: name = "BACKSP";break;  // SDLK_BACKSPACE
+                        case 1073741911: name = "ESC";   break;  // SDLK_ESCAPE
+                        case 1073741912: name = "RETURN";break;  // SDLK_RETURN
+                    }
+                    settings_entries_.push_back(mkv(full_lbl, name, Action::kNone));
+                }
             }
         }
         settings_entries_.push_back(mk ("RESTORE DEFAULTS",
@@ -385,22 +403,28 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     break;
                 }
                 case 11: case 12: case 13: case 14:
-                case 15: case 16: case 17: {
-                    // M13: P1 rebind. selected_index_ - 11 is the
-                    // 0..6 slot index into KeyBindings. The menu
-                    // drops into the kRemapCapture sub-state and
-                    // waits for the next key-down to commit. The
+                case 15: case 16: case 17:
+                case 18: case 19: case 20: case 21:
+                case 22: case 23: case 24: {
+                    // M13 / M13.1: P1 (indices 11-17) and P2
+                    // (indices 18-24) rebind. The slot index
+                    // into KeyBindings is selected_index_ - 11.
+                    // The player index is 0 for the first 7
+                    // rows, 1 for the second 7. The menu drops
+                    // into the kRemapCapture sub-state and waits
+                    // for the next key-down to commit. The
                     // action we emit is kNone because the remap
                     // is committed later (by a kApplyRemap
                     // action) once a key is captured.
-                    remap_slot_ = selected_index_ - 11;
+                    remap_slot_   = selected_index_ - 11;
+                    remap_player_ = (selected_index_ >= 18) ? 1 : 0;
                     remap_capture_active_ = true;
                     state_ = State::kRemapCapture;
                     audio.play(SfxId::MenuConfirm);
                     return Action::kNone;
                 }
-                case 18: settings_->reset_to_defaults(); break;
-                case 19: {
+                case 25: settings_->reset_to_defaults(); break;
+                case 26: {
                     // BACK row
                     pending_action_ = Action::kSaveSettings;
                     state_ = State::kMain;
@@ -409,7 +433,7 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     return Action::kNone;
                 }
             }
-            if (selected_index_ < 18) {
+            if (selected_index_ < 25) {
                 audio.play(SfxId::MenuConfirm);
             }
             rebuild_settings_entries();
@@ -595,7 +619,8 @@ Menu::State Menu::update(const InputManager& input, const Gamepad& pad,
                 k != SDLK_LALT  && k != SDLK_RALT  &&
                 k != SDLK_LGUI  && k != SDLK_RGUI) {
                 if (remap_slot_ >= 0 && remap_slot_ < 7) {
-                    pending_remap_slot_ = remap_slot_;
+                    pending_remap_player_  = remap_player_;
+                    pending_remap_slot_    = remap_slot_;
                     pending_remap_keycode_ = static_cast<int>(k);
                     pending_action_ = Action::kApplyRemap;
                 }
@@ -606,6 +631,7 @@ Menu::State Menu::update(const InputManager& input, const Gamepad& pad,
             }
             remap_capture_active_ = false;
             remap_slot_ = -1;
+            remap_player_ = 0;
             remap_pulse_ticks_ = 0;
             state_ = State::kSettings;
             // The selection will be re-set by App when it
@@ -794,7 +820,7 @@ void Menu::render_remap_capture(Renderer& r) const {
         case 5:  action_name = "FORWARD TILT";break;
         case 6:  action_name = "NEUTRAL AIR"; break;
     }
-    const std::string line = std::string("P1 ") + action_name;
+    const std::string line = std::string(remap_player_ == 0 ? "P1 " : "P2 ") + action_name;
     draw_text_centered(r, 300, line, config::kHudTextColor);
 
     // Pulse the prompt.

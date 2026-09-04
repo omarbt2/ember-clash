@@ -62,6 +62,23 @@ void InputMap::apply_p1_from_ints(const std::int32_t* keys, std::size_t count) {
     if (n >= 7) b.nair       = static_cast<SDL_Keycode>(keys[6]);
 }
 
+void InputMap::apply_p2_from_ints(const std::int32_t* keys, std::size_t count) {
+    if (!keys) return;
+    KeyBindings& b = bindings_storage(1);
+    // Same shape and same defensive copy as P1. The remap
+    // UI's "player index" field picks which array to write.
+    const std::size_t n = (count < static_cast<std::size_t>(KeyBindings::kActionCount))
+                        ? count
+                        : static_cast<std::size_t>(KeyBindings::kActionCount);
+    if (n >= 1) b.move_left  = static_cast<SDL_Keycode>(keys[0]);
+    if (n >= 2) b.move_right = static_cast<SDL_Keycode>(keys[1]);
+    if (n >= 3) b.jump       = static_cast<SDL_Keycode>(keys[2]);
+    if (n >= 4) b.fast_fall  = static_cast<SDL_Keycode>(keys[3]);
+    if (n >= 5) b.jab        = static_cast<SDL_Keycode>(keys[4]);
+    if (n >= 6) b.ftilt      = static_cast<SDL_Keycode>(keys[5]);
+    if (n >= 7) b.nair       = static_cast<SDL_Keycode>(keys[6]);
+}
+
 const char* InputMap::key_name(SDL_Keycode key, char* out, std::size_t out_size) {
     if (!out || out_size == 0) return out;
     out[0] = '\0';

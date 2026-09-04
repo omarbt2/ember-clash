@@ -21,6 +21,7 @@
 
 #include <cstdio>
 #include <cstring>
+#include <fstream>
 #include <string>
 
 namespace {
@@ -585,10 +586,13 @@ int main() {
             std::remove(path.c_str());
         }
 
-        // 7) Settings parser clamps out-of-range p1_bindings to 0
-        //    so a corrupt file cannot leave the player with a
-        //    keycode outside the InputManager's 0..511 slot
-        //    table.
+        // 7) Settings parser clamps negative p1_bindings to 0.
+        //    Non-negative values (including SDL_Keycodes in
+        //    the 0x40000000+ range) are kept verbatim. The
+        //    remap UI is the right place to validate against
+        //    the InputManager's 0..511 poll table; a
+        //    corrupt file with a negative number is the only
+        //    thing the parser needs to fix.
         {
             Settings s = Settings();
             s.p1_bindings = {{-1, 999, 700, 5, 4, 3, 2}};
@@ -596,8 +600,10 @@ int main() {
             save_settings_to_file(path, s);
             const Settings r = load_settings_from_file(path);
             check(r.p1_bindings[0] == 0, "p1_bindings negative -> 0");
-            check(r.p1_bindings[1] == 0, "p1_bindings > 511 -> 0");
-            check(r.p1_bindings[2] == 0, "p1_bindings > 511 -> 0");
+            check(r.p1_bindings[1] == 999,
+                  "p1_bindings 999 preserved (non-neg)");
+            check(r.p1_bindings[2] == 700,
+                  "p1_bindings 700 preserved (non-neg)");
             check(r.p1_bindings[3] == 5, "p1_bindings in range survives");
             check(r.p1_bindings[4] == 4, "p1_bindings in range survives");
             check(r.p1_bindings[5] == 3, "p1_bindings in range survives");
@@ -627,6 +633,174 @@ int main() {
                   "key_name null-terminates a 4-byte buffer");
             check(static_cast<int>(std::strlen(buf3)) <= 3,
                   "key_name truncates to fit");
+        }
+    }
+
+    // ---- 13. M13.1: P2 key remap (mirror of M13) -------------------------
+    // Same contract as P1: defaults match the InputMap
+    // storage, apply_p2_from_ints copies a 7-int buffer,
+    // settings round-trips, out-of-range values clamp to 0,
+    // and apply_p2_from_ints is null-safe.
+    section("M13.1: P2 key remap");
+    {
+        // 1) Settings::p2_bindings defaults to the arrow-keys
+        //    + numpad layout (the P2 input map's compile-time
+        //    defaults).
+        Settings s;
+        s.reset_to_defaults();
+        // The defaults are documented in Settings.cpp. The
+        // keycodes are SDLK_LEFT..KP_3.
+        check(s.p2_bindings[0] == 1073741904, "p2 move_left default = LEFT");
+        check(s.p2_bindings[1] == 1073741903, "p2 move_right default = RIGHT");
+        check(s.p2_bindings[2] == 1073741906, "p2 jump default = UP");
+        check(s.p2_bindings[3] == 1073741905, "p2 fast_fall default = DOWN");
+        // 1073741913 = 0x40000059 = SDLK_KP_1
+        check(s.p2_bindings[4] == 1073741913, "p2 jab default = KP_1");
+        check(s.p2_bindings[5] == 1073741914, "p2 ftilt default = KP_2");
+        check(s.p2_bindings[6] == 1073741915, "p2 nair default = KP_3");
+        // P2 defaults are distinct from P1's defaults.
+        check(s.p1_bindings[0] != s.p2_bindings[0],
+              "p2 defaults are distinct from p1 defaults");
+
+        // 2) InputMap::bindings(1) returns the P2 storage.
+        KeyBindings& live_p2 = InputMap::bindings(1);
+        // We don't know what the static storage currently
+        // holds because earlier tests may have called
+        // apply_p2_from_ints. Reset by calling apply again.
+        const SDL_Keycode defaults[7] = { SDLK_LEFT, SDLK_RIGHT,
+            SDLK_UP, SDLK_DOWN, SDLK_KP_1, SDLK_KP_2, SDLK_KP_3 };
+        InputMap::apply_p2_from_ints(
+            reinterpret_cast<const std::int32_t*>(defaults), 7);
+        check(live_p2.move_left  == SDLK_LEFT,  "p2.move_left = LEFT");
+        check(live_p2.move_right == SDLK_RIGHT, "p2.move_right = RIGHT");
+        check(live_p2.jump       == SDLK_UP,    "p2.jump = UP");
+        check(live_p2.fast_fall  == SDLK_DOWN,  "p2.fast_fall = DOWN");
+        check(live_p2.jab        == SDLK_KP_1,  "p2.jab = KP_1");
+
+        // 3) apply_p2_from_ints copies a 7-int buffer.
+        const SDL_Keycode new_keys[7] = { SDLK_F1, SDLK_F2, SDLK_F3,
+            SDLK_F4, SDLK_F5, SDLK_F6, SDLK_F7 };
+        InputMap::apply_p2_from_ints(
+            reinterpret_cast<const std::int32_t*>(new_keys), 7);
+        check(live_p2.move_left  == SDLK_F1, "p2 move_left = F1");
+        check(live_p2.jab        == SDLK_F5, "p2 jab = F5");
+        check(live_p2.nair       == SDLK_F7, "p2 nair = F7");
+
+        // 4) apply_p2_from_ints is null-safe.
+        InputMap::apply_p2_from_ints(nullptr, 7);
+        // No crash. State is preserved as last non-null call.
+        check(live_p2.move_left == SDLK_F1,
+              "p2 null apply preserves previous state");
+
+        // 5) Settings::p2_bindings round-trips through save/load.
+        {
+            const std::string path =
+                std::string("test_p2_bindings_") +
+                std::to_string(g_total) + ".txt";
+            Settings s2;
+            s2.reset_to_defaults();
+            s2.p2_bindings = {{SDLK_Q, SDLK_E, SDLK_R, SDLK_T,
+                                SDLK_F, SDLK_G, SDLK_V}};
+            const bool ok = save_settings_to_file(path, s2);
+            check(ok, "save_settings_to_file wrote p2_bindings");
+            Settings r = load_settings_from_file(path);
+            check(r.p2_bindings[0] == SDLK_Q, "p2 move_left round-trips Q");
+            check(r.p2_bindings[1] == SDLK_E, "p2 move_right round-trips E");
+            check(r.p2_bindings[2] == SDLK_R, "p2 jump round-trips R");
+            check(r.p2_bindings[3] == SDLK_T, "p2 fast_fall round-trips T");
+            check(r.p2_bindings[4] == SDLK_F, "p2 jab round-trips F");
+            check(r.p2_bindings[5] == SDLK_G, "p2 ftilt round-trips G");
+            check(r.p2_bindings[6] == SDLK_V, "p2 nair round-trips V");
+            std::remove(path.c_str());
+        }
+
+        // 6) Settings parser clamps negative p2_bindings to 0.
+        //    Non-negative values (including SDL_Keycodes in
+        //    the 0x40000000+ range) are kept verbatim.
+        {
+            Settings s3;
+            s3.reset_to_defaults();
+            s3.p2_bindings = {{-1, 999, 700, 5, 4, 3, 2}};
+            const std::string path =
+                std::string("test_p2_clamp_") +
+                std::to_string(g_total) + ".txt";
+            save_settings_to_file(path, s3);
+            Settings r = load_settings_from_file(path);
+            check(r.p2_bindings[0] == 0, "p2_bindings negative -> 0");
+            check(r.p2_bindings[1] == 999,
+                  "p2_bindings 999 preserved (non-neg)");
+            check(r.p2_bindings[2] == 700,
+                  "p2_bindings 700 preserved (non-neg)");
+            check(r.p2_bindings[3] == 5, "p2_bindings in range survives");
+            check(r.p2_bindings[4] == 4, "p2_bindings in range survives");
+            check(r.p2_bindings[5] == 3, "p2_bindings in range survives");
+            check(r.p2_bindings[6] == 2, "p2_bindings in range survives");
+            std::remove(path.c_str());
+        }
+
+        // 7) An M13-era settings file (no p2_* keys) loads with
+        //    p2_bindings at defaults. Backward compatibility.
+        {
+            const std::string path =
+                std::string("test_p2_legacy_") +
+                std::to_string(g_total) + ".txt";
+            std::ofstream f(path, std::ios::binary | std::ios::trunc);
+            f << "master_volume=80\n";
+            f << "p1_jump=113\n";  // 'q' - not the default
+            f.close();
+            Settings r = load_settings_from_file(path);
+            check(r.master_volume == 80, "legacy load: master_volume survives");
+            check(r.p1_bindings[2] == 113, "legacy load: p1_jump survives");
+            // p2_bindings are the defaults (P2 rows were not
+            // in the file at all).
+            check(r.p2_bindings[0] == 1073741904,
+                  "legacy load: p2_bindings[0] = default LEFT");
+            check(r.p2_bindings[2] == 1073741906,
+                  "legacy load: p2_bindings[2] = default UP");
+            std::remove(path.c_str());
+        }
+
+        // 8) Menu exposes P1 + P2 BIND rows. The settings
+        //    screen rebuilds the entry list on enter; we
+        //    bind Settings, jump to kSettings, and count.
+        {
+            Menu menu;
+            Settings s;
+            s.reset_to_defaults();
+            // Tweak P2 so we can see the live read.
+            s.p2_bindings[4] = 1024;  // arbitrary visible value
+            menu.bind_settings(&s);
+            menu.set_state_for_test(Menu::State::kSettings);
+            menu.rebuild_settings_entries_for_test();
+            // entries_for_state gives us the live list.
+            const std::size_t n = menu.entries_for_state_for_test(
+                Menu::State::kSettings).size();
+            // 11 audio/video rows (MASTER VOLUME, MASTER MUTE,
+            // SFX VOLUME, SFX MUTE, MUSIC VOLUME, MUSIC MUTE,
+            // FULLSCREEN, SCREEN SHAKE, COLOR BLIND, AI
+            // DIFFICULTY, RENDER SCALE) + 7 P1 BIND + 7 P2 BIND
+            // + 2 footer (RESTORE DEFAULTS, BACK) = 27.
+            check(n == 27,
+                  "kSettings entries count = 27 (11 AV + 14 BIND + 2 footer)");
+
+            // 9) Sanity: confirm handler for index 24 (the
+            //    last P2 row, NAIR) drops into kRemapCapture
+            //    with remap_player_ == 1. The handler returns
+            //    Action::kNone because the remap is committed
+            //    later by kApplyRemap. We drive the menu
+            //    directly using set_settings_for_test +
+            //    set_state + a pre-seeded selection by
+            //    recreating with selection. Menu exposes
+            //    selected_index_for_test() so we can verify
+            //    the row read back is the one we set, but
+            //    the capture-state plumbing is private.
+            //    Instead we verify the public read-back: the
+            //    remap commit goes through pending_remap_*
+            //    fields, which start at -1 / 0.
+            check(menu.pending_remap_player() == -1,
+                  "pending_remap_player starts at -1");
+            check(menu.pending_remap_slot() == -1,
+                  "pending_remap_slot starts at -1");
         }
     }
 
