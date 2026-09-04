@@ -236,6 +236,26 @@ void App::update(double dt) {
     }
     if (haptics_) haptics_->update();
 
+    // P15: route game events to the audio layer the same way
+    // we route them to the haptics layer. The edge detection
+    // (prev vs current last_hit_) prevents per-frame spam.
+    // A "strong hit" SFX fires on every fresh hit; the "KO"
+    // cue fires on the match-end transition. The intro banner
+    // is silent by design so the player can read "READY...".
+    if (match_ && audio_) {
+        const auto last_hit = match_->last_hit_position_for_test();
+        if (last_hit.valid && !prev_hit_valid) {
+            // HitHeavy is the strong cue; the lighter cues
+            // (HitLight, HitSpark) live in the bank for
+            // future per-attack differentiation.
+            audio_->play(SfxId::HitHeavy);
+        }
+        if (match_->phase() == Match::Phase::MatchOver
+            && prev_phase != Match::Phase::MatchOver) {
+            audio_->play(SfxId::Ko);
+        }
+    }
+
     if (settings_dirty_) {
         last_settings_flush_ += dt;
         if (last_settings_flush_ > 1.0) {
@@ -309,7 +329,16 @@ void App::handle_menu_action() {
             if (window_) {
                 window_->set_fullscreen(settings_.fullscreen);
             }
+            // P15: color-blind toggle must be live. set_color_blind()
+            // only updates the runtime flag, but the fighter sprites
+            // were built once at construction with the previous
+            // palette. We rebuild each fighter's sprite now so the
+            // change is visible this frame, not on the next rematch.
             art::set_color_blind(settings_.color_blind_palette);
+            if (match_) {
+                match_->fighter(0).rebuild_sprite_for_palette();
+                match_->fighter(1).rebuild_sprite_for_palette();
+            }
             break;
         case Menu::Action::kRestoreDefaultSettings:
             settings_.reset_to_defaults();
@@ -326,6 +355,10 @@ void App::handle_menu_action() {
                 window_->set_fullscreen(settings_.fullscreen);
             }
             art::set_color_blind(settings_.color_blind_palette);
+            if (match_) {
+                match_->fighter(0).rebuild_sprite_for_palette();
+                match_->fighter(1).rebuild_sprite_for_palette();
+            }
             break;
         case Menu::Action::kToggleFullscreen:
             // Real OS-level fullscreen switch via SDL. The window

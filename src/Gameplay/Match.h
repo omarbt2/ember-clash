@@ -73,6 +73,29 @@ public:
     // Position of the most recent hit (for the hit-spark HUD overlay).
     HitEvent last_hit_position_for_test() const { return last_hit_; }
 
+    // P15-playability: intro sequence. match_startup_ticks() is the
+    // frame counter since the match began. 0 = freshly reset;
+    // 0..kIntroBannerReadyFrames-1 = "READY..."; next
+    // kIntroBannerFightFrames = "FIGHT!"; afterwards the match is
+    // live and the Hud blanks the banner. is_intro_active() returns
+    // true while the banner is on (i.e. physics is frozen). The
+    // banner_state() returns 0/1/2 for the Hud to use as an index.
+    int  match_startup_ticks() const { return match_startup_ticks_; }
+    int  intro_banner_state()  const { return intro_banner_state_; }
+    bool is_intro_active()     const {
+        return intro_banner_state_ != 2;
+    }
+    // P15: live-play age, in frames. Starts at 0 the FIRST frame
+    // after the intro sequence ends (banner state transitions to
+    // 2) and increments by 1 every subsequent update. The AI
+    // uses this to decide whether the post-FIGHT grace window
+    // is still active. Note: match_startup_ticks_ is frozen
+    // at the end of the intro, so it cannot be used as a
+    // monotonic age counter for post-intro decisions; live_ticks_
+    // is the correct value for anything that needs to count
+    // "frames since play started".
+    int  live_ticks() const { return live_ticks_; }
+
     // M6-C: combat feel state. All read by App to drive the renderer
     // (shake offset) and the test harness to verify the feel is firing.
     // True while the match is in its hit-stop pause (motion + AI frozen,
@@ -129,6 +152,32 @@ private:
     Phase  phase_{Phase::Fighting};
     HitEvent last_hit_{0.0f, 0.0f, false};
     int  hit_spark_age_{0};  // frames remaining for the active spark
+
+    // P15-playability: match intro sequence. The match does NOT start
+    // in live play - it begins in a "READY..." / "FIGHT!" countdown
+    // (combat::kIntroBannerReadyFrames + kIntroBannerFightFrames total).
+    // During this window Match::update is a no-op for the gameplay
+    // (no AI, no motion, no hit resolution), and the Hud draws the
+    // banner. The 0..kIntroBannerReadyFrames-1 range shows "READY...";
+    // kIntroBannerReadyFrames..(kIntroBannerReadyFrames +
+    // kIntroBannerFightFrames)-1 shows "FIGHT!"; after that the
+    // counter continues to increment so the Hud can blank the banner
+    // and the AI can begin its 1.5s post-FIGHT startup grace
+    // (kAiStartupGraceTicks). The counter resets to 0 on every
+    // match->reset() so a rematch re-runs the intro.
+    int  match_startup_ticks_{0};
+    // Cached snapshot of the intro banner's logical state so the Hud
+    // can decide what to draw without re-deriving the threshold math
+    // every frame. 0 = "READY...", 1 = "FIGHT!", 2 = live (no banner).
+    int  intro_banner_state_{0};
+    // P15: live-play age in frames. Starts at 0 on the first frame
+    // AFTER the intro sequence (i.e. when intro_banner_state_ first
+    // becomes 2) and increments by 1 every subsequent update. Unlike
+    // match_startup_ticks_ (which is frozen at the end of the intro)
+    // this is a monotonic counter for the duration of live play.
+    // The AI's kAiStartupGraceTicks gate uses this value, not
+    // match_startup_ticks_.
+    int  live_ticks_{0};
 
     // M6-C: combat feel state. Set on hit / KO, ticked each update, and
     // consumed by App to drive the renderer.

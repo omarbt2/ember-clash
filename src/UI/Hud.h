@@ -36,6 +36,14 @@ public:
     // to show the rematch prompt.
     static void draw_ko_banner(Renderer& renderer, const Match& match,
                                const Fighter& p1, const Fighter& p2);
+
+    // P15: draws the READY/FIGHT intro banner while
+    // Match::is_intro_active() is true. After the banner clears
+    // (intro_banner_state_ == 2) this is a no-op so it can be
+    // called unconditionally from Match::render(). The banner
+    // uses the same KO-band layout so the visual treatment
+    // matches the post-match banner (dark band + yellow text).
+    static void draw_intro_banner(Renderer& renderer, const Match& match);
 };
 
 // -----------------------------------------------------------------------------

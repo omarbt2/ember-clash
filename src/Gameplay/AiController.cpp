@@ -2,6 +2,7 @@
 
 #include "Core/Logger.h"
 #include "Gameplay/Attack.h"
+#include "Gameplay/CombatConfig.h"
 #include "Gameplay/Fighter.h"
 #include "World/Arena.h"
 
@@ -104,13 +105,35 @@ void AiController::decide(const Fighter& self,
                           const Fighter& opp,
                           const Arena& arena,
                           double /*dt*/,
+                          int    live_ticks,
                           PlayerIntent& m,
                           CombatIntent& c) {
+    // P15: post-FIGHT startup grace. The match passes
+    // match.live_ticks() here as the live_ticks argument.
+    // This is the correct age counter for post-intro
+    // decisions because match_startup_ticks_ is FROZEN at
+    // the end of the intro. Previously we mistakenly used
+    // match_startup_ticks_ here, which meant the grace
+    // gate was satisfied forever (match_startup_ticks_ never
+    // grew past the intro's last frame) and the bot never
+    // acted after the intro ended. live_ticks_ is
+    // monotonic from the first frame of live play, so it
+    // works correctly here.
+    if (live_ticks >= 0
+        && live_ticks < combat::kAiStartupGraceTicks) {
+        // Stand still, no combat intents. The bot still
+        // faces the opponent because Fighter::update
+        // re-evaluates facing each tick.
+        m = PlayerIntent{};
+        c = CombatIntent{};
+        return;
+    }
+
     // The current state handler fills the intents; per-tick transitions
     // are signalled by enter_state() inside the handler.
     switch (state_) {
         case State::Idle:     tick_idle    (self, opp, arena, m, c); break;
-        case State::Approach: tick_approach(self, opp, arena, m, c); break;
+        case State::Approach: tick_approach(self, opp, arena, m, c, live_ticks); break;
         case State::Attack:   tick_attack  (self, opp, arena, m, c); break;
         case State::Retreat:  tick_retreat (self, opp, arena, m, c); break;
         case State::Recover:  tick_recover (self, opp, arena, m, c); break;
@@ -154,7 +177,8 @@ void AiController::tick_idle(const Fighter& self,
 void AiController::tick_approach(const Fighter& self,
                                  const Fighter& opp,
                                  const Arena& arena,
-                                 PlayerIntent& m, CombatIntent& c) {
+                                 PlayerIntent& m, CombatIntent& c,
+                                 int live_ticks) {
     // Off-stage -> Recover.
     if (is_off_stage(self, arena)) {
         enter_state(State::Recover);
@@ -178,24 +202,38 @@ void AiController::tick_approach(const Fighter& self,
         return;
     }
 
+    // P15: post-attack cooldown. The previous behaviour let the
+    // bot commit a new attack the very next frame after a swing
+    // ended (50% retreat, 50% re-engage), which produced jab-
+    // jab-jab spam that overwhelmed the player. The cooldown
+    // is measured in absolute live-play time so it does not
+    // depend on the bot's current state. last_attack_tick_
+    // defaults to -1000 so the very first commit is allowed
+    // even when live_ticks is 0.
+    const bool in_cooldown = (live_ticks - last_attack_tick_)
+                           <  combat::kAiAttackCooldownTicks;
+    if (!in_cooldown)
     // In jab range: commit to a jab (most of the time) or ftilt if slightly
     // further. attack_frequency is the probability of committing once in
     // range; the rest of the time the bot keeps approaching.
     if (in_jab_range(self, opp) && self.is_grounded()) {
         if (rand_percent() < difficulty_.attack_frequency) {
             c.jab_pressed = true;
+            last_attack_tick_ = live_ticks;
             enter_state(State::Attack);
             return;
         }
     } else if (in_ftilt_range(self, opp) && self.is_grounded()) {
         if (rand_percent() < difficulty_.attack_frequency) {
             c.ftilt_pressed = true;
+            last_attack_tick_ = live_ticks;
             enter_state(State::Attack);
             return;
         }
     } else if (in_nair_range(self, opp)) {
         if (rand_percent() < difficulty_.attack_frequency) {
             c.nair_pressed = true;
+            last_attack_tick_ = live_ticks;
             enter_state(State::Attack);
             return;
         }

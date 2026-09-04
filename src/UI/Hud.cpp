@@ -148,6 +148,32 @@ void Hud::draw_hit_spark(Renderer& renderer, float x, float y, int age) {
         color);
 }
 
+void Hud::draw_intro_banner(Renderer& renderer, const Match& match) {
+    // No-op when the intro is over. The draw call from
+    // Match::render() can therefore be unconditional.
+    if (!match.is_intro_active()) return;
+
+    constexpr int band_h = 96;
+    renderer.draw_filled_rect(
+        { 0.0f, static_cast<float>(kKoBannerY),
+          static_cast<float>(config::kRenderWidth),
+          static_cast<float>(band_h) },
+        { 12, 12, 18, 255 });
+
+    // 0 = "READY...", 1 = "FIGHT!". The state field is set by
+    // Match::update each frame during the intro, so the
+    // transition between the two texts is automatic.
+    const char* text = (match.intro_banner_state() == 0)
+        ? "READY..."
+        : "FIGHT!";
+
+    const std::size_t n = std::char_traits<char>::length(text);
+    const int w = static_cast<int>(n) * kAdvance * 2 - kCellPx * 2;
+    const int x = (config::kRenderWidth - w) / 2;
+    const int y = kKoBannerY + (band_h - kGlyphH * 2) / 2;
+    draw_text_scaled(renderer, x, y, text, config::kKoBannerColor, 2);
+}
+
 void Hud::draw_ko_banner(Renderer& renderer, const Match& match,
                          const Fighter& p1, const Fighter& p2) {
     (void)p2;  // M5 1v1 only needs p1; symmetric signature is future-proof.

@@ -102,6 +102,14 @@ void Match::reset() {
     phase_           = Phase::Fighting;
     last_hit_        = HitEvent{0.0f, 0.0f, false};
     hit_spark_age_   = 0;
+    // P15: start the intro sequence (READY/FIGHT). The first frame
+    // after reset shows "READY..."; the banner transitions to "FIGHT!"
+    // after kIntroBannerReadyFrames and clears after
+    // kIntroBannerReadyFrames + kIntroBannerFightFrames. AI physics
+    // is gated on intro_banner_state_ == 2 in Match::update.
+    match_startup_ticks_ = 0;
+    intro_banner_state_  = 0;
+    live_ticks_          = 0;
 }
 
 void Match::set_ai(int fighter_index, std::unique_ptr<AiController> controller) {
@@ -147,6 +155,49 @@ void Match::update(const InputManager& input, double dt) {
         return;
     }
 
+    // P15: intro sequence gate. The very first
+    // (kIntroBannerReadyFrames + kIntroBannerFightFrames) frames of
+    // every match (and rematch) are intro frames: physics, AI, and
+    // hit resolution are FROZEN so the player can see the spawn
+    // positions and react to the "READY..." / "FIGHT!" banners
+    // without the bot immediately running in. During this window
+    // we still tick match_startup_ticks_ and recompute
+    // intro_banner_state_ so the Hud can render the right banner,
+    // and we still age any active hit-spark so a hit that landed
+    // the previous frame does not freeze on screen. We also let
+    // the KO shake tick down (a held shake from a prior match's
+    // last hit would otherwise linger into the next match, but
+    // reset() clears ko_shake_frames_ to 0 so this is a no-op in
+    // practice).
+    if (intro_banner_state_ != 2) {
+        ++match_startup_ticks_;
+        if (match_startup_ticks_ < combat::kIntroBannerReadyFrames) {
+            intro_banner_state_ = 0;  // "READY..."
+        } else if (match_startup_ticks_ <
+            combat::kIntroBannerReadyFrames
+                + combat::kIntroBannerFightFrames) {
+            intro_banner_state_ = 1;  // "FIGHT!"
+        } else {
+            // Intro done; mark state 2 ("live"). The match has not
+            // been "playing" yet - the first frame of live play is
+            // the next call to update(). The AI's
+            // kAiStartupGraceTicks gate is consulted inside
+            // AiController, which reads match_startup_ticks_ to
+            // decide whether the grace window is still active.
+            intro_banner_state_ = 2;
+        }
+        if (hit_spark_age_ > 0) --hit_spark_age_;
+        return;
+    }
+
+    // P15: we are now in live play. Increment the monotonic live
+    // play age counter that downstream systems (AI startup grace,
+    // future "match has been live for N seconds" logic) use to
+    // schedule post-intro behaviour. match_startup_ticks_ is
+    // frozen at this point, so live_ticks_ is the only correct
+    // counter for the "frames since play started" question.
+    ++live_ticks_;
+
     // M6-C: hit-stop. While a hit is "fresh" the match freezes - motion
     // and AI are paused so the hit registers with weight, but the hit-
     // spark still ages. We still want input sampled (the player may be
@@ -188,7 +239,9 @@ void Match::update(const InputManager& input, double dt) {
         if (ai_[i]) {
             const int opp_idx = (i == 0) ? 1 : 0;
             const Fighter& opp = *fighters_[opp_idx];
-            ai_[i]->decide(self, opp, arena_, dt, motion, combat);
+            ai_[i]->decide(self, opp, arena_, dt,
+                           live_ticks_,
+                           motion, combat);
         } else {
             const InputMap::Sample s = InputMap::sample(input, i);
             motion = s.motion;
@@ -298,6 +351,11 @@ void Match::render(Renderer& renderer) const {
         ui::Hud::draw_hit_spark(renderer, last_hit_.x, last_hit_.y,
                                 hit_spark_age_);
     }
+
+    // P15: intro banner is drawn after the hit-spark so it sits
+    // on top. draw_intro_banner() is a no-op once the intro is
+    // over, so we can call it unconditionally here.
+    ui::Hud::draw_intro_banner(renderer, *this);
 
     // KO banner last so it sits on top of everything else.
     ui::Hud::draw_ko_banner(renderer, *this, *fighters_[0], *fighters_[1]);
@@ -422,6 +480,19 @@ std::uint64_t Match::state_hash() const {
     // --- Match flow ---
     mix32(static_cast<std::uint32_t>(phase_));
     mix_f64(ko_banner_timer_);
+
+    // --- P15 intro sequence ---
+    // match_startup_ticks_ is sim-affecting (controls when AI
+    // starts committing, when the banner clears, when the
+    // "live" state begins). intro_banner_state_ is purely a
+    // display field derived from it; folding both is cheap
+    // and keeps the hash self-documenting. live_ticks_ is
+    // the monotonic live-play age counter used by the AI
+    // grace gate and the post-attack cooldown, so it is
+    // also sim-affecting and must be folded in.
+    mix32(static_cast<std::uint32_t>(match_startup_ticks_));
+    mix32(static_cast<std::uint32_t>(intro_banner_state_));
+    mix32(static_cast<std::uint32_t>(live_ticks_));
 
     // --- Per-fighter respawn timers (seconds) ---
     for (int i = 0; i < kFighterCount; ++i) {

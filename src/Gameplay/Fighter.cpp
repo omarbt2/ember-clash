@@ -94,6 +94,22 @@ void Fighter::reset_for_rematch() {
     attack_has_hit_    = false;
 }
 
+// P15: rebuild the per-fighter sprite from the current color-blind
+// flag. The renderer's sprite cache is keyed on Sprite* identity, so
+// we allocate a fresh Sprite (with a fresh address) to ensure the
+// cache slot's old texture is dropped and the new palette is uploaded
+// on the next render. We also reset the animation driver to Idle
+// and pin the sprite to frame 0 so the fighter doesn't show a
+// half-faded frame for a tick.
+void Fighter::rebuild_sprite_for_palette() {
+    sprite_ = std::make_unique<Sprite>(Sprite::build_animation_strip(
+        art::palette_for(player_index_, art::color_blind_enabled())));
+    if (sprite_) {
+        sprite_->set_current_frame(0);
+    }
+    anim_driver_.reset_to_idle();
+}
+
 bool Fighter::try_start_attack(const CombatIntent& ci) {
     // Determine the requested attack by priority. Higher-index attacks win
     // because they're the more deliberate inputs; nair is checked last so

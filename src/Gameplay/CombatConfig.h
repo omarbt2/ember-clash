@@ -79,6 +79,42 @@ inline constexpr int kHitSparkFrames = 6;
 // freeze frames; 3 is a safe starting point for the first playable slice.
 inline constexpr int kHitStopFrames = 3;
 
+// -----------------------------------------------------------------------------
+// P15: match intro sequence.
+//
+// A fresh match does not start with both fighters already in combat.
+// Instead the match runs a short "READY..." -> "FIGHT!" banner
+// (kIntroBannerReadyFrames + kIntroBannerFightFrames total frames)
+// during which physics, AI, and hit resolution are frozen. This is
+// the standard platform-fighter flow and is essential for playability:
+// without it the match feels like the AI is already attacking
+// the moment the player presses PLAY.
+//
+// Tuning rationale:
+//   * 60 + 60 = 2.0 seconds total. Long enough to read the spawn
+//     positions and recover from the menu click, short enough that
+//     the player is not waiting. Smash uses about 1.7s (READY 1.0s
+//     + FIGHT 0.7s); we go slightly longer to feel deliberate.
+// -----------------------------------------------------------------------------
+inline constexpr int kIntroBannerReadyFrames = 60;
+inline constexpr int kIntroBannerFightFrames = 60;
+
+// After the FIGHT! banner ends, the AI gets a kAiStartupGraceTicks
+// window where it does NOT commit to an attack even if the human
+// runs into range. This is the second half of the "give the human
+// a chance to orient" fix - the banner alone is not enough because
+// the human's first reaction is to move, and the AI would otherwise
+// punish that movement on the first frame. 90 ticks = 1.5s of
+// pure "stand and face the player" AI behavior.
+inline constexpr int kAiStartupGraceTicks = 90;
+
+// Minimum time (ticks) between two committed attacks by the AI.
+// The AI's attack_frequency is still the per-tick probability of
+// committing once in range, but this cooldown caps the spam: after
+// a swing ends, the AI must wait at least kAiAttackCooldownTicks
+// before considering another attack. 30 ticks = 0.5s.
+inline constexpr int kAiAttackCooldownTicks = 30;
+
 // Maximum screen-shake magnitude in render pixels on a KO (the last stock
 // lost). The shake decays linearly to 0 over kKoShakeFrames.
 inline constexpr float kKoShakeMagnitude = 12.0f;

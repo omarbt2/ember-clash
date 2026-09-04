@@ -74,6 +74,15 @@ public:
     // reset that respawn() already handled.
     void reset_for_rematch();
 
+    // P15: rebuild the per-fighter sprite from the current color-
+    // blind palette flag. Called by App when the user toggles the
+    // COLOR BLIND setting so the visual change is immediate. The
+    // sprite is otherwise built once in the ctor using the palette
+    // that was current at construction time; without this hook the
+    // setting only took effect on the NEXT rematch, which read as
+    // "the toggle does nothing" during play.
+    void rebuild_sprite_for_palette();
+
     // Test-only setters. Used by the headless harness to inject state
     // without going through combat or the death zone. Production code
     // should never call these; the public update/respawn path is the only

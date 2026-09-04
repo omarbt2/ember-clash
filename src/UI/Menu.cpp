@@ -184,8 +184,9 @@ void Menu::rebuild_settings_entries() {
         settings_entries_.push_back(mkv("AI DIFFICULTY",
             std::string(settings_->ai_difficulty.data()).c_str(),
             Action::kNone));
-        settings_entries_.push_back(mkv("RENDER SCALE",
-            (std::string("x") + std::to_string(settings_->render_scale)).c_str(),
+        settings_entries_.push_back(mkv("INTERNAL RES",
+            (std::string("x") + std::to_string(settings_->render_scale)
+                + "  (1x = 1280x720)").c_str(),
             Action::kApplyRenderScale));
         // M13 / M13.1: P1 and P2 rebindable keys. The label
         // and value are read from the live settings struct so
@@ -369,17 +370,35 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
         // used by the bookkeeping calls in those branches.
         (void)entries;
         // Settings screen: the right-hand value column is editable
-        // with left/right; confirm just toggles bool-style fields
-        // and cycles the AI difficulty. The +/- style volume edit
-        // happens via left/right (see below).
+        // with left/right. Confirm is reserved for BIND rows (M13)
+        // and for the BOOLEAN rows (mute / fullscreen / screen shake
+        // / color blind) that have only an on/off state. The
+        // CONTINUOUS rows (volume sliders, AI difficulty cycle,
+        // render scale cycle) are still driven by confirm, with the
+        // +/- flow on left/right reserved for slider-style fields.
+        // P15: after every change we call audio.apply_settings()
+        // and the App's "apply live" hook so the change is
+        // observable to the user immediately. Without this, a
+        // volume change would not affect the next play() until
+        // the user backed out to the main menu, which made the
+        // settings feel broken.
         if (state_ == State::kSettings && settings_) {
             switch (selected_index_) {
-                case 0: settings_->master_volume = (settings_->master_volume + 10) % 110; if (settings_->master_volume > 100) settings_->master_volume = 0; break;
+                case 0:
+                case 2:
+                case 4:
+                    // Volume rows: confirm is a no-op. The +/-10
+                    // edit happens via left/right (see below).
+                    // If the user has landed here by mistake we
+                    // just play the "back" cue so they know
+                    // nothing happened, and we do NOT change
+                    // the value.
+                    audio.play(SfxId::MenuBack);
+                    rebuild_settings_entries();
+                    return Action::kNone;
                 case 1: settings_->master_mute = !settings_->master_mute; break;
-                case 2: settings_->sfx_volume    = (settings_->sfx_volume    + 10) % 110; if (settings_->sfx_volume    > 100) settings_->sfx_volume    = 0; break;
-                case 3: settings_->sfx_mute = !settings_->sfx_mute; break;
-                case 4: settings_->music_volume  = (settings_->music_volume  + 10) % 110; if (settings_->music_volume  > 100) settings_->music_volume  = 0; break;
-                case 5: settings_->music_mute = !settings_->music_mute; break;
+                case 3: settings_->sfx_mute    = !settings_->sfx_mute;    break;
+                case 5: settings_->music_mute  = !settings_->music_mute;  break;
                 case 6: settings_->fullscreen = !settings_->fullscreen; break;
                 case 7: settings_->screen_shake = !settings_->screen_shake; break;
                 case 8: settings_->color_blind_palette = !settings_->color_blind_palette; break;
@@ -436,6 +455,20 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
             if (selected_index_ < 25) {
                 audio.play(SfxId::MenuConfirm);
             }
+            // P15: live-apply audio settings so a volume change
+            // is audible the instant the slider moves. The
+            // render-scale + fullscreen + color-blind changes
+            // are observed by App via the SettingsChanged
+            // action that kSaveSettings emits; we ALSO want
+            // the audio apply to be live here, so we call it
+            // directly rather than waiting for the BACK path.
+            audio.apply_settings(*settings_);
+            // P15: mark the file dirty so the periodic flush
+            // (App::step, last_settings_flush_) writes the new
+            // value to disk. Previously a change made in the
+            // settings UI was lost on crash if the player
+            // never pressed BACK.
+            pending_action_ = Action::kSaveSettings;
             rebuild_settings_entries();
             return Action::kNone;
         }
@@ -528,31 +561,60 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
     // current selection as the edit target; left decreases, right
     // increases. Mute / fullscreen / AI difficulty are handled by
     // confirm only - left/right on those rows is a no-op.
+    // P15: the volume slider is now STRICTLY 0..100 (no wrap-
+    // around at 100->0). Pressing right at 100 does nothing
+    // and the slider emits the "back" cue; pressing left at
+    // 0 does nothing. This matches the platform-fighter norm
+    // and matches what the user expects from a volume slider.
     if (state_ == State::kSettings && settings_) {
         const bool left  = input.menu_left()  || pad.nav_left();
         const bool right = input.menu_right() || pad.nav_right();
         if (left || right) {
             const int delta = right ? +10 : -10;
+            bool changed = false;
             switch (selected_index_) {
                 case 0: {
                     int& v = settings_->master_volume;
-                    v = (v + delta + 110) % 110;
-                    if (v > 100) v = (delta > 0 ? 0 : 100);
+                    const int next = v + delta;
+                    if (next >= 0 && next <= 100) {
+                        v = next;
+                        changed = true;
+                    }
                 } break;
                 case 2: {
                     int& v = settings_->sfx_volume;
-                    v = (v + delta + 110) % 110;
-                    if (v > 100) v = (delta > 0 ? 0 : 100);
+                    const int next = v + delta;
+                    if (next >= 0 && next <= 100) {
+                        v = next;
+                        changed = true;
+                    }
                 } break;
                 case 4: {
                     int& v = settings_->music_volume;
-                    v = (v + delta + 110) % 110;
-                    if (v > 100) v = (delta > 0 ? 0 : 100);
+                    const int next = v + delta;
+                    if (next >= 0 && next <= 100) {
+                        v = next;
+                        changed = true;
+                    }
                 } break;
                 default: break;
             }
-            audio.play(SfxId::MenuMove);
-            rebuild_settings_entries();
+            if (changed) {
+                audio.play(SfxId::MenuMove);
+                // P15: live-apply so the player hears the new
+                // volume right away. Without this, dragging the
+                // slider felt broken because the audio was
+                // unchanged until the user backed out to the
+                // main menu.
+                audio.apply_settings(*settings_);
+                pending_action_ = Action::kSaveSettings;
+                rebuild_settings_entries();
+            } else {
+                // Slider pegged at one end - play a quieter
+                // cue so the user knows the press was
+                // registered but no change happened.
+                audio.play(SfxId::MenuBack);
+            }
         }
     }
 

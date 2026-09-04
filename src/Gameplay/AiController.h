@@ -48,11 +48,16 @@ public:
     // One decision. The Match calls this per AI-controlled fighter per tick.
     // The returned intents feed Fighter::update exactly like InputMap's
     // output does for a human. dt is in seconds and lets the FSM scale
-    // behaviour by tick rate.
+    // behaviour by tick rate. match_startup_ticks is the value of
+    // Match::match_startup_ticks() for the current frame; the controller
+    // uses it to honor the post-FIGHT startup grace window (during which
+    // the bot does not commit to an attack) without needing a back-pointer
+    // to the Match object.
     void decide(const Fighter& self,
                 const Fighter& opponent,
                 const Arena& arena,
                 double dt,
+                int    match_startup_ticks,
                 PlayerIntent& out_motion,
                 CombatIntent& out_combat);
 
@@ -66,12 +71,19 @@ public:
 
     // Test-only: reset the controller to its initial state (keeps the
     // difficulty knobs). Used between headless test cases.
-    void reset_for_test() { state_ = State::Idle; state_ticks_ = 0; rng_ = difficulty_.seed; }
+    void reset_for_test() { state_ = State::Idle; state_ticks_ = 0; rng_ = difficulty_.seed; last_attack_tick_ = -1; }
 
 private:
     ai::Difficulty difficulty_;
     State          state_{State::Idle};
     int        state_ticks_{0};
+    // P15: global match-time counter at the moment of the last
+    // committed attack. The bot refuses to attack again until
+    // kAiAttackCooldownTicks have passed (measured against the
+    // match_startup_ticks value passed into decide()). -1 means
+    // "never attacked" so the very first commit is always
+    // allowed.
+    int        last_attack_tick_{-1};
     std::uint32_t rng_{0};
 
     // xorshift32. Returns 0..2^32-1, then we scale to 0..99 with % 100.
@@ -88,11 +100,13 @@ private:
 
     // State-handler methods. Each returns nothing and mutates the two
     // out_intent references; transitions to a new state are signalled by
-    // the per-state transition helpers (see cpp).
+    // the per-state transition helpers (see cpp). tick_approach takes an
+    // extra `match_startup_ticks` so it can record the timestamp of a
+    // committed attack for the post-attack cooldown gate.
     void tick_idle    (const Fighter& self, const Fighter& opp, const Arena& arena,
                        PlayerIntent& m, CombatIntent& c);
     void tick_approach(const Fighter& self, const Fighter& opp, const Arena& arena,
-                       PlayerIntent& m, CombatIntent& c);
+                       PlayerIntent& m, CombatIntent& c, int match_startup_ticks);
     void tick_attack  (const Fighter& self, const Fighter& opp, const Arena& arena,
                        PlayerIntent& m, CombatIntent& c);
     void tick_retreat (const Fighter& self, const Fighter& opp, const Arena& arena,
