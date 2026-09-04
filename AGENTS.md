@@ -23,12 +23,53 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
-**P16 — V1.0 master pass (commit ad4d33f).** The P15 commit (38e6049)
-shipped the intro banner + AI grace + live settings but had three
-latent regressions that the P15 verification missed. The master pass
-fixes all three, adds test seams so future AI/grace tweaks are
-testable in isolation, and confirms the full regression suite is
-GREEN end-to-end.
+**P17 — Human playability recovery + final system completion (commit
+30b3ca9).** A playtest surfaced two symptoms ("game feels too fast"
++ "character hard to see") with a single root cause: the desktop
+main loop ran at the GPU's free-running rate (200-500+ FPS on a
+fast machine) while every per-tick constant assumes 60 Hz. The
+P17 fix ties the simulation dt to `config::kTargetFps`, turns on
+vsync, and adds a match-zoom camera so the fighters fill more of
+the screen without a screen-space HUD blowup.
+
+What changed (P17):
+
+- **Fixed-timestep accumulator in `App::run()`.** The old loop
+  called `handle_events()` + `update()` + `render()` once per
+  render frame, so the simulation dt equalled whatever the GPU
+  wanted to produce (often 0.002 s on a 500 Hz display). The new
+  loop is: `handle_events()` once, accumulate `delta_seconds()`,
+  drain the accumulator in fixed `Clock::fixed_step_seconds()`
+  steps, then `render()` once. The catch-up tick count is capped
+  at 3 per render frame (spiral-of-death guard). `App::step()` is
+  unchanged so the Emscripten adapter still works.
+- **Vsync.** `Renderer::Renderer` now calls `SDL_SetRenderVSync
+  (renderer_, 1)` after the renderer is created. SDL3 ignores
+  `SDL_RENDERER_PRESENTVSYNC` (the old SDL2 flag), so this is
+  the new spell. Belt-and-suspenders alongside the accumulator:
+  even if the accumulator underdrains on a fast machine, vsync
+  caps the render rate at the display's refresh.
+- **Match-zoom camera.** `App::render()` now (a) computes a
+  smoothed midpoint of the two fighters with +120 y-bias
+  (Smash convention: "show what is below, hint at what is
+  above"), (b) clamps to the arena bounds, (c) multiplies
+  the user's `render_scale` by 1.3x for the match render,
+  and (d) resets to the user's `render_scale` before any
+  screen-space draw (menu overlay, HUD drawn outside
+  `Match::render`). Net effect: the match looks 1.3x closer
+  while the menu and HUD remain crisp.
+- **New test seam `tests/ember_test_p17_playability.cpp`**
+  (6 checks): pins `Clock::fixed_step_seconds() == 1/60`,
+  `config::kTargetFps == 60`, and `Settings::render_scale` is
+  a positive mutable int. `run_p17_test.bat` / `run_p17_test
+  .cmd` wired into `verify_all_desktop_tests.bat`.
+- **Verification.** Build 0 errors / 0 warnings. Full
+  regression **473 checks GREEN** across 13 harnesses: AI 14,
+  M5 14, M6 12, M6-B 33, M6-C 59, M7-AI 14, M8 4, M11-AUDIT
+  9, M12-AUDIT 145, M14-AUDIT 31, M12.5-AUDIO 23,
+  P15-PLAYABILITY 17, **P17-PLAYABILITY 6**. Game smoke:
+  `build/bin/EmberClash.exe` launches with `SDL_VIDEODRIVER=
+  dummy`, runs the main loop, accepts clean termination.
 
 What changed (master pass):
 
