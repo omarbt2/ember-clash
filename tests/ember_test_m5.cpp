@@ -59,6 +59,7 @@ int main() {
         SCENARIO("Stocks and respawn on death-zone crossing");
 
         Match m;
+        m.force_live_state_for_test();
         InputManager input;  // real, unused.
         Fighter& p1 = m.fighter(0);
         Fighter& p2 = m.fighter(1);
@@ -94,6 +95,7 @@ int main() {
         SCENARIO("Respawn invulnerability blocks damage");
 
         Match m;
+        m.force_live_state_for_test();
         InputManager input;
         Fighter& p2 = m.fighter(1);
 
@@ -123,6 +125,7 @@ int main() {
         SCENARIO("Match ends when one fighter's stocks reach 0");
 
         Match m;
+        m.force_live_state_for_test();
         InputManager input;
         Fighter& p1 = m.fighter(0);
 
@@ -142,6 +145,7 @@ int main() {
         SCENARIO("Match::reset() restarts a match");
 
         Match m;
+        m.force_live_state_for_test();
         InputManager input;
         {
             Fighter& p1 = m.fighter(0);
@@ -176,6 +180,7 @@ int main() {
         SCENARIO("Hit spark is recorded when a hit lands");
 
         Match m;
+        m.force_live_state_for_test();
         InputManager input;
         // Take AI off both fighters so the test can pin body positions
         // deterministically.

@@ -121,6 +121,7 @@ int main() {
     SCENARIO_BEGIN("1");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);  // human-driven P2 for testability
         InputManager input;
         input.clear_for_test();
@@ -177,6 +178,7 @@ int main() {
     SCENARIO_BEGIN("2");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -212,6 +214,7 @@ int main() {
     SCENARIO_BEGIN("3");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -252,6 +255,7 @@ int main() {
     SCENARIO_BEGIN("4");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -290,6 +294,7 @@ int main() {
     SCENARIO_BEGIN("5");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -333,6 +338,7 @@ int main() {
     SCENARIO_BEGIN("9");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -388,6 +394,7 @@ int main() {
     SCENARIO_BEGIN("6");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -423,6 +430,7 @@ int main() {
     SCENARIO_BEGIN("7");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -454,6 +462,7 @@ int main() {
     SCENARIO_BEGIN("8");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -495,6 +504,7 @@ int main() {
     SCENARIO_BEGIN("10");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();
@@ -561,6 +571,7 @@ int main() {
     SCENARIO_BEGIN("11");
     {
         Match match;
+        match.force_live_state_for_test();
         match.set_ai(1, nullptr);
         InputManager input;
         input.clear_for_test();

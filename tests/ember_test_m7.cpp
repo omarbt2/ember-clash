@@ -97,7 +97,9 @@ int main() {
         bot.seed                 = 0xC0DEu;
 
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
+        m.ai_mutable(1)->set_skip_grace_for_test(true);
         InputManager input;
         input.clear_for_test();
 
@@ -158,7 +160,9 @@ int main() {
         bot.seed                 = 0xBEEFu;
 
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
+        m.ai_mutable(1)->set_skip_grace_for_test(true);
         InputManager input;
         input.clear_for_test();
 
@@ -196,7 +200,9 @@ int main() {
         bot.seed                 = 0xFACEu;
 
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
+        m.ai_mutable(1)->set_skip_grace_for_test(true);
         InputManager input;
         input.clear_for_test();
 

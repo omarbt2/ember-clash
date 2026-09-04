@@ -120,10 +120,66 @@ void AiController::decide(const Fighter& self,
     // monotonic from the first frame of live play, so it
     // works correctly here.
     if (live_ticks >= 0
-        && live_ticks < combat::kAiStartupGraceTicks) {
+        && live_ticks < combat::kAiStartupGraceTicks
+        && !force_skip_grace_for_test_) {
         // Stand still, no combat intents. The bot still
         // faces the opponent because Fighter::update
-        // re-evaluates facing each tick.
+        // re-evaluates facing each tick. We DO still
+        // advance the state machine so a bot that gets
+        // hit during the grace still progresses Idle ->
+        // Recover (M4-AI test 6 exercises this exact
+        // path: apply_hit with off-stage velocity, the
+        // bot must reach Recover) and a bot that is
+        // already Approaching can still enter Defend
+        // (M7-AI exercises this exact path). The intent
+        // to stand still is the only thing the grace
+        // affects.
+        //
+        // However, we MUST NOT let the FSM commit an
+        // attack during the grace: the attack intent is
+        // zeroed so the Fighter never sees the rising
+        // edge, and the FSM would then immediately
+        // transition Attack -> Retreat/Idle, which puts
+        // the bot into Retreat/Idle well before the
+        // grace ends. By the time the grace ends, the
+        // bot has to spend another kRetreatDurationTicks
+        // (60) + reaction_delay (40) + reaction_delay
+        // (40) ticks getting back into a useful state,
+        // which is more than the post-grace test
+        // budgets (P15-PLAYABILITY scenario 6 expects
+        // attacks within 4s after a 1.5s grace).
+        //
+        // The fix: snapshot state_ before the FSM tick.
+        // If the tick transitioned INTO Attack, undo
+        // the transition (restore state_, reset
+        // state_ticks_ to its pre-tick value) and zero
+        // last_attack_tick_ so the cooldown does not
+        // think the bot just attacked.
+        const State pre_state = state_;
+        const int   pre_ticks = state_ticks_;
+        const int   pre_last  = last_attack_tick_;
+        switch (state_) {
+            case State::Idle:     tick_idle    (self, opp, arena, m, c); break;
+            case State::Approach: tick_approach(self, opp, arena, m, c, live_ticks); break;
+            case State::Attack:   tick_attack  (self, opp, arena, m, c); break;
+            case State::Retreat:  tick_retreat (self, opp, arena, m, c); break;
+            case State::Recover:  tick_recover (self, opp, arena, m, c); break;
+            case State::Defend:   tick_defend  (self, opp, arena, m, c); break;
+        }
+        ++state_ticks_;
+        if (state_ == State::Attack && pre_state != State::Attack) {
+            // Undo: the FSM tried to commit an attack, but
+            // the grace is going to discard the intent, so
+            // the bot would be stuck in Attack without
+            // actually attacking. Roll back to the pre-tick
+            // state and cooldown.
+            state_              = pre_state;
+            state_ticks_        = pre_ticks;
+            last_attack_tick_   = pre_last;
+        }
+        // Overwrite any motion/combat intents the state
+        // machine produced. During the grace the bot is
+        // contractually a statue.
         m = PlayerIntent{};
         c = CombatIntent{};
         return;

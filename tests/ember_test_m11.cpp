@@ -74,6 +74,7 @@ int main() {
         bot.seed                 = 0xC0FFEEu;
 
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
 
         const std::uint64_t h0 = m.state_hash();
@@ -110,6 +111,7 @@ int main() {
             bot.seed                 = 0xC0FFEEu;
 
             Match m;
+            m.force_live_state_for_test();
             m.set_ai(1, std::make_unique<AiController>(bot));
 
             InputManager input;
@@ -157,6 +159,7 @@ int main() {
             bot.seed                 = seed;
 
             Match m;
+            m.force_live_state_for_test();
             m.set_ai(1, std::make_unique<AiController>(bot));
 
             InputManager input;
@@ -197,6 +200,7 @@ int main() {
             bot.seed                 = 0xDEADBEEFu;
 
             Match m;
+            m.force_live_state_for_test();
             m.set_ai(1, std::make_unique<AiController>(bot));
             InputManager input;
             input.clear_for_test();

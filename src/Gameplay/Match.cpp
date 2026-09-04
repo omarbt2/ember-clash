@@ -127,6 +127,11 @@ const AiController* Match::ai(int fighter_index) const {
     return ai_[fighter_index].get();
 }
 
+AiController* Match::ai_mutable(int fighter_index) {
+    if (fighter_index < 0 || fighter_index >= kFighterCount) return nullptr;
+    return ai_[fighter_index].get();
+}
+
 void Match::update(const InputManager& input, double dt) {
     // M6-C: tick the post-KO shake at the TOP of update so the first
     // frame after the match-end transition (which sets ko_shake_frames_

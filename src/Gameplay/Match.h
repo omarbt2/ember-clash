@@ -65,6 +65,11 @@ public:
     // used in the production update path.
     Fighter&       fighter(int index)       { return *fighters_[index]; }
     const AiController* ai(int fighter_index) const;
+    // P15: test-only mutable accessor so the test can set
+    // test seams (e.g. set_skip_grace_for_test). Production
+    // code uses the const ai() overload so it cannot
+    // mutate AI state.
+    AiController*       ai_mutable(int fighter_index);
 
     // M5 accessors for the HUD and tests.
     Phase phase() const { return phase_; }
@@ -136,6 +141,23 @@ public:
         fighters_[fighter_index]->respawn(arena_);
         fighters_[fighter_index]->set_respawn_invuln_seconds(
             combat::kRespawnInvulnSeconds);
+    }
+
+    // P15: test-only convenience. Forces the intro sequence to end
+    // immediately. The next update() will see intro_banner_state_ == 2
+    // and run live play on the first call, so the existing M5 / M6-C /
+    // AI harnesses (which were written before the intro existed and
+    // assume Match::update runs the gameplay on tick 0) keep their
+    // semantics. Production code never calls this; the only legitimate
+    // path to live play is the real intro gate. live_ticks_ is set to
+    // 0 so any post-intro gate (e.g. the AI startup grace) is measured
+    // from the call site forward, exactly as if the intro had just
+    // finished naturally.
+    void force_live_state_for_test() {
+        intro_banner_state_ = 2;
+        match_startup_ticks_ = combat::kIntroBannerReadyFrames
+                             + combat::kIntroBannerFightFrames;
+        live_ticks_ = 0;
     }
 
 private:

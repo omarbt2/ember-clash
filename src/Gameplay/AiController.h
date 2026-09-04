@@ -73,6 +73,14 @@ public:
     // difficulty knobs). Used between headless test cases.
     void reset_for_test() { state_ = State::Idle; state_ticks_ = 0; rng_ = difficulty_.seed; last_attack_tick_ = -1; }
 
+    // P15: test-only bypass. The post-FIGHT startup grace is a UX
+    // guarantee for the player; tests that drive the AI in a tight
+    // loop (M7-AI Defend tests use 90 frames) want the bot to act
+    // immediately so the state machine reaches Defend within the
+    // test window. The force flag is a hard opt-in: production code
+    // never sets it.
+    void set_skip_grace_for_test(bool skip) { force_skip_grace_for_test_ = skip; }
+
 private:
     ai::Difficulty difficulty_;
     State          state_{State::Idle};
@@ -85,6 +93,8 @@ private:
     // allowed.
     int        last_attack_tick_{-1};
     std::uint32_t rng_{0};
+    // Test-only: see set_skip_grace_for_test.
+    bool force_skip_grace_for_test_{false};
 
     // xorshift32. Returns 0..2^32-1, then we scale to 0..99 with % 100.
     std::uint32_t next_rand();

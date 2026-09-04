@@ -54,6 +54,7 @@ int main() {
     std::printf("\n[1] Default AI wiring\n");
     {
         Match m;
+        m.force_live_state_for_test();
         check("P1 (index 0) is human by default", !m.is_ai(0));
         check("P2 (index 1) is AI by default",     m.is_ai(1));
         check("P2 has an attached AiController",   m.ai(1) != nullptr);
@@ -71,6 +72,7 @@ int main() {
         fast.seed                 = 0xABCDEFu;
 
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(fast));
         check("P2 now uses the custom controller", m.is_ai(1));
         check("Custom difficulty reached through match", m.ai(1)->difficulty().seed == 0xABCDEFu);
@@ -90,6 +92,7 @@ int main() {
         bot.seed                 = 0xC0FFEEu;
 
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
         InputManager input;
 
@@ -131,6 +134,7 @@ int main() {
 
         auto play = [&]() {
             Match m;
+            m.force_live_state_for_test();
             m.set_ai(1, std::make_unique<AiController>(bot));
             InputManager input;
             std::string trace;
@@ -173,6 +177,7 @@ int main() {
         // apply_hit on the bot to push its damage above 20.
         AiController controller(bot);
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
         Match& mm = m;  // non-const for fighter access
         mm.fighter(1).apply_hit(40, {0, 0}, 0);
@@ -207,6 +212,7 @@ int main() {
         bot.seed                 = 0x99887u;
 
         Match m;
+        m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
         Match& mm = m;  // non-const for fighter access
         // Knock the bot off stage (velocity upward, off the right side).
