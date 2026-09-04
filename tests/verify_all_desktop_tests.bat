@@ -38,6 +38,8 @@ call "%~dp0run_m125_audio_test.bat"
 set _m125=%errorlevel%
 call "%~dp0run_m14_test.bat"
 set _m14=%errorlevel%
+call "%~dp0run_p15_test.bat"
+set _p15=%errorlevel%
 popd
 echo ===summary===
 echo AI: %_ai%
@@ -51,6 +53,7 @@ echo M11-AUDIT: %_m11%
 echo M12-AUDIT: %_m12%
 echo M12.5-AUDIO: %_m125%
 echo M14-AUDIT: %_m14%
+echo P15-PLAYABILITY: %_p15%
 if %_ai% neq 0 exit /b %_ai%
 if %_m5% neq 0 exit /b %_m5%
 if %_m6% neq 0 exit /b %_m6%
@@ -62,4 +65,5 @@ if %_m11% neq 0 exit /b %_m11%
 if %_m12% neq 0 exit /b %_m12%
 if %_m125% neq 0 exit /b %_m125%
 if %_m14% neq 0 exit /b %_m14%
+if %_p15% neq 0 exit /b %_p15%
 exit /b 0

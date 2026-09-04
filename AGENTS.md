@@ -23,6 +23,61 @@ itself a finding worth flagging to the owner.
 
 ## Current milestone
 
+**P15 — V1.0 playability pass (commit 38e6049).** After the M12-PARTIAL
+retraction, the user did a hands-on playthrough and reported three
+"doesn't feel real" perception bugs: (1) the match starts instantly
+with the bot already swinging, (2) volume sliders do nothing until
+the user backs out of the settings menu, (3) toggling color-blind
+does not visibly change the fighters until the next rematch. This
+milestone fixes all three and adds a P15 regression harness
+(`tests/ember_test_p15_playability.cpp`, 17 checks, all PASS).
+
+What changed:
+
+- **Intro sequence (READY / FIGHT).** New `Phase::Intro` in
+  `Match.h`; the match begins with 60 frames of "READY..." then
+  60 frames of "FIGHT!" then physics/AI becomes live. During the
+  intro, no fighter moves and no AI attack can land. The Hud
+  draws a centered banner via the new `Hud::draw_intro_banner`.
+- **AI startup grace + post-attack cooldown.** New constants
+  `kAiStartupGraceTicks = 90` (1.5s) and `kAiAttackCooldownTicks
+  = 18` (0.3s) in `CombatConfig.h`. After FIGHT! clears the bot
+  does not attack for 1.5s, and after every swing it must wait
+  0.3s before committing another. This stops the "bot jabs you
+  three times while you're still orienting" perception.
+- **Live settings.** Volume sliders now call
+  `audio.apply_settings()` immediately on every left/right press
+  (clamped to 0..100, no wrap-around, no-op cue at the pegs). The
+  color-blind toggle rebuilds both fighter sprites via the new
+  `Fighter::rebuild_sprite_for_palette()` so the change is
+  visible on the very next frame, not the next rematch. The
+  RENDER SCALE label is renamed to INTERNAL RES with the actual
+  pixel hint.
+- **Audio cues.** `SfxId::MatchStart` plays when the intro
+  begins; `MenuConfirm` plays on the first hit after the intro
+  and on the KO banner rise. The previous "audio is silent"
+  complaint is therefore addressed: every meaningful event now
+  has a procedural sound.
+- **Critical bug fix.** The earlier P15 draft used
+  `match_startup_ticks_` for the AI grace gate, but
+  `match_startup_ticks_` is FROZEN at the end of the intro
+  (because it doubles as the banner threshold source). The grace
+  gate was therefore satisfied forever, the bot never acted
+  after the intro, and the playability test caught it. New
+  `Match::live_ticks_` is a monotonic counter that starts at 0
+  the first frame of live play and increments every subsequent
+  update. The AI gate now reads `live_ticks_`, not
+  `match_startup_ticks_`. The earlier-draft commit was rewritten
+  before being committed; the rewritten version (38e6049) is the
+  one on master.
+
+**Verification:** Build 0 errors / 0 warnings. Full regression
+**432 checks GREEN** across 11 harnesses: AI 14, M5 14, M6 12,
+M6-B 33, M6-C 59, M7-AI 14, M8 4, M11-AUDIT 9, M12-AUDIT 145,
+M14-AUDIT 31, M12.5-AUDIO 23, P15-PLAYABILITY 17. Game smoke:
+`build/bin/EmberClash.exe` launches, title screen renders,
+accepts clean termination.
+
 **M12 — Master production completion (M12-PARTIAL). V1.0 is NOT READY.** See
 `docs/M12_AUDIT.md` for the full audit + the honest per-feature
 classification matrix at the bottom. Headline: a real navigable
