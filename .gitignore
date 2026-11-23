@@ -82,3 +82,9 @@ build-web/
 !web/**/*.js
 !web/**/*.css
 !web/**/*.wasm
+
+# Generated build and analysis output
+*_output.txt
+build_*.txt
+*_scan.txt
+cargo_metadata.json
