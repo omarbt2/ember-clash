@@ -51,6 +51,9 @@ void Fighter::respawn(const Arena& arena) {
     attack_has_hit_    = false;
     hitstun_frames_    = 0;
     invuln_frames_     = 0;
+    shield_ = combat::kShieldMax; guard_frames_ = 0; dodge_frame_ = 0;
+    dodge_cooldown_ = 0; surge_frames_ = 0; parry_flash_ = 0;
+    up_special_used_ = false; air_dodge_used_ = false;
 
     // First call (from the constructor) initializes stocks to the starting
     // value; subsequent calls (from Match on respawn) preserve the count so
@@ -84,6 +87,10 @@ void Fighter::set_respawn_invuln_seconds(double seconds) {
 // fresh match. Resets stocks, damage, and any in-progress attack/hitstun.
 void Fighter::reset_for_rematch() {
     stocks_        = combat::kStartingStocks;
+    surge_meter_   = 0;
+    shield_ = combat::kShieldMax; guard_frames_ = 0; dodge_frame_ = 0;
+    dodge_cooldown_ = 0; surge_frames_ = 0; parry_flash_ = 0;
+    up_special_used_ = false; air_dodge_used_ = false;
     damage_percent_ = 0;
     dead_           = false;
     invuln_frames_  = 0;
@@ -110,25 +117,107 @@ void Fighter::rebuild_sprite_for_palette() {
     anim_driver_.reset_to_idle();
 }
 
-bool Fighter::try_start_attack(const CombatIntent& ci) {
-    // Determine the requested attack by priority. Higher-index attacks win
-    // because they're the more deliberate inputs; nair is checked last so
-    // a stray direction press can't cancel a stronger ground option.
+bool Fighter::try_start_attack(const PlayerIntent& mi, const CombatIntent& ci) {
+    // Directions relative to facing.
+    const bool right = mi.move_right && !mi.move_left;
+    const bool left  = mi.move_left  && !mi.move_right;
+    const bool fwd   = (facing_ > 0) ? right : left;
+    const bool back  = (facing_ > 0) ? left  : right;
+    const bool up    = mi.up_held && !mi.fast_fall_held;
+    const bool down  = mi.fast_fall_held && !mi.up_held;
+
+    // Input resolution. Priority: special > jab > strong > air button, which
+    // keeps the legacy priority (jab beat ftilt beat nair) intact.
     AttackId requested = AttackId::None;
-    if (ci.nair_pressed)        requested = AttackId::NeutralAir;
-    if (ci.ftilt_pressed)       requested = AttackId::ForwardTilt;
-    if (ci.jab_pressed)         requested = AttackId::Jab;
+    auto aerial = [&]() {
+        if (up)   return AttackId::UpAir;
+        if (down) return AttackId::DownAir;
+        if (fwd)  return AttackId::ForwardAir;
+        if (back) return AttackId::BackAir;
+        return AttackId::NeutralAir;
+    };
+    if (ci.nair_pressed)  requested = grounded_ ? AttackId::NeutralAir : aerial();
+    if (ci.ftilt_pressed) {
+        if (!grounded_)            requested = aerial();   // strong button in air = aerial
+        else if (ci.smash_held)    requested = up ? AttackId::UpSmash
+                                          : down ? AttackId::DownSmash
+                                                 : AttackId::ForwardSmash;
+        else                       requested = up ? AttackId::UpTilt
+                                          : down ? AttackId::DownTilt
+                                                 : AttackId::ForwardTilt;
+    }
+    if (ci.jab_pressed) {
+        if (!grounded_)  requested = aerial();
+        else             requested = up ? AttackId::UpTilt
+                                  : down ? AttackId::DownTilt : AttackId::Jab;
+    }
+    if (ci.special_pressed) {
+        if (up)                requested = AttackId::UpSpecial;
+        else if (down)         requested = AttackId::DownSpecial;
+        else if (fwd || back)  requested = AttackId::SideSpecial;
+        else                   requested = AttackId::NeutralSpecial;
+    }
     if (requested == AttackId::None) return false;
 
     const Attack& atk = get_attack(requested);
     if (atk.requires_ground && !grounded_) return false;
     if (atk.requires_air    &&  grounded_) return false;
+    if (atk.once_per_airtime && up_special_used_) return false;
+
+    if (requested == AttackId::SideSpecial && back) facing_ = -facing_;
 
     current_attack_id_ = requested;
     attack_frame_      = 0;
     attack_has_hit_    = false;
     state_             = State::Attacking;
+    if (atk.self_vx != 0.0f) velocity_.x = static_cast<double>(atk.self_vx) * facing_;
+    if (atk.self_vy != 0.0f) {
+        velocity_.y = static_cast<double>(atk.self_vy);
+        if (atk.self_vy < 0.0f) grounded_ = false;
+    }
+    if (atk.once_per_airtime) up_special_used_ = true;
     return true;
+}
+
+void Fighter::add_surge(int amount) {
+    if (surge_frames_ > 0 || amount <= 0) return;   // no gain during Surge
+    surge_meter_ += amount;
+    if (surge_meter_ > combat::kSurgeMeterMax) surge_meter_ = combat::kSurgeMeterMax;
+}
+
+void Fighter::stun_for(int frames) {
+    hitstun_frames_ = frames < combat::kMinHitstunFrames ? combat::kMinHitstunFrames : frames;
+    state_ = State::Hitstun;
+    current_attack_id_ = AttackId::None;
+    attack_frame_ = 0;
+    attack_has_hit_ = false;
+    guard_frames_ = 0;
+}
+
+Fighter::HitOutcome Fighter::receive_hit(int damage, Vec2 kb, int hitstun, int attacker_facing) {
+    if (dead_ || invuln_frames_ > 0) return HitOutcome::Ignored;
+    if (dodge_invulnerable()) {
+        add_surge(combat::kSurgeGainDodge);
+        return HitOutcome::Dodged;
+    }
+    if (state_ == State::Guard) {
+        if (guard_frames_ <= combat::kParryWindowFrames) {
+            parry_flash_ = 12;
+            add_surge(combat::kSurgeGainParry);
+            return HitOutcome::Parried;
+        }
+        shield_ -= damage * combat::kShieldDamageCost;
+        velocity_.x = combat::kGuardPushback * attacker_facing;
+        add_surge(combat::kSurgeGainBlock);
+        if (shield_ <= 0) {
+            shield_ = combat::kShieldBreakRestore;
+            stun_for(combat::kShieldBreakStun);
+        }
+        return HitOutcome::Blocked;
+    }
+    apply_hit(damage, kb, hitstun);
+    add_surge(damage * combat::kSurgeGainPerDamageTaken);
+    return HitOutcome::Hit;
 }
 
 void Fighter::advance_attack() {
@@ -155,6 +244,11 @@ void Fighter::update(const PlayerIntent& motion_intent,
         --invuln_frames_;
     }
 
+    // --- Timers (Rebirth) ---------------------------------------------------
+    if (dodge_cooldown_ > 0) --dodge_cooldown_;
+    if (parry_flash_ > 0)    --parry_flash_;
+    if (surge_frames_ > 0)   --surge_frames_;
+
     // --- State advance -----------------------------------------------------
     if (state_ == State::Hitstun) {
         if (--hitstun_frames_ <= 0) {
@@ -165,10 +259,57 @@ void Fighter::update(const PlayerIntent& motion_intent,
     if (state_ == State::Attacking) {
         advance_attack();
     }
+    if (state_ == State::Dodge) {
+        if (++dodge_frame_ >= combat::kDodgeFrames) {
+            dodge_frame_ = 0;
+            state_ = State::Idle;
+        }
+    }
+    if (state_ == State::Guard) {
+        ++guard_frames_;
+        shield_ -= combat::kShieldDrainPerFrame;
+        if (!combat_intent.shield_held || !grounded_ || shield_ <= 0) {
+            if (shield_ <= 0) {
+                shield_ = combat::kShieldBreakRestore;
+                stun_for(combat::kShieldBreakStun);
+            } else {
+                state_ = State::Idle;
+            }
+            guard_frames_ = 0;
+        }
+    } else if (shield_ < combat::kShieldMax) {
+        shield_ += combat::kShieldRegenPerFrame;
+        if (shield_ > combat::kShieldMax) shield_ = combat::kShieldMax;
+    }
 
-    // --- Try to start a new attack from Idle -------------------------------
+    // --- Ember Surge activation ---------------------------------------------
+    if (combat_intent.surge_pressed && surge_frames_ == 0
+        && surge_meter_ >= combat::kSurgeMeterMax
+        && state_ != State::Hitstun) {
+        surge_meter_  = 0;
+        surge_frames_ = combat::kSurgeFrames;
+    }
+
+    // --- Dodge (from Idle or Guard) ----------------------------------------
+    if ((state_ == State::Idle || state_ == State::Guard)
+        && combat_intent.dodge_pressed && dodge_cooldown_ == 0
+        && (grounded_ || !air_dodge_used_)) {
+        state_        = State::Dodge;
+        dodge_frame_  = 0;
+        guard_frames_ = 0;
+        dodge_cooldown_ = combat::kDodgeCooldownFrames;
+        dodge_dir_ = motion_intent.move_right && !motion_intent.move_left ?  1
+                   : motion_intent.move_left  && !motion_intent.move_right ? -1 : 0;
+        if (!grounded_) air_dodge_used_ = true;
+    }
+
+    // --- Try to start a new attack / guard from Idle -----------------------
     if (state_ == State::Idle) {
-        try_start_attack(combat_intent);
+        if (!try_start_attack(motion_intent, combat_intent)
+            && combat_intent.shield_held && grounded_ && shield_ > 0) {
+            state_        = State::Guard;
+            guard_frames_ = 1;
+        }
     }
 
     // --- Facing update (only when idle; attacks and hitstun lock facing) ---
@@ -179,17 +320,23 @@ void Fighter::update(const PlayerIntent& motion_intent,
 
     // --- Motion ------------------------------------------------------------
     if (state_ == State::Idle) {
-        // Full motion step. step_motion() respects air control, fast-fall,
-        // and jump; grounded_ is refreshed by collision below.
         const MotionState in{velocity_, grounded_, jumps_remaining_};
         const MotionResult out = step_motion(in, motion_intent, /*dt*/ 1.0 / 60.0);
         velocity_        = out.velocity;
         jumps_remaining_ = out.jumps_remaining;
+    } else if (state_ == State::Guard) {
+        velocity_.x *= 0.5;
+        velocity_ = apply_gravity_only(velocity_, false);
+    } else if (state_ == State::Dodge) {
+        velocity_.x = combat::kDodgeSpeed * dodge_dir_;
+        if (grounded_) {
+            velocity_ = apply_gravity_only(velocity_, false);
+        } else {
+            velocity_.y = 0.0;   // air dodge hovers for its duration
+        }
     } else {
-        // Attacking or Hitstun: gravity only, preserve horizontal velocity.
-        // Fast-fall is allowed during attack startup/active/recovery so the
-        // player can accelerate a falling aerial; spec's M3 spec doesn't
-        // require it but it costs nothing and feels better in the hand.
+        // Attacking or Hitstun: gravity only; horizontal momentum is kept
+        // (the M7 AI is tuned around this slide; revisit in the AI pass).
         velocity_ = apply_gravity_only(velocity_, motion_intent.fast_fall_held);
     }
 
@@ -199,6 +346,7 @@ void Fighter::update(const PlayerIntent& motion_intent,
 
     // --- Resolve arena collision -------------------------------------------
     grounded_ = arena.resolve_collision(body_, velocity_);
+    if (grounded_) { up_special_used_ = false; air_dodge_used_ = false; }
     // M5 note: the death-zone check used to live here, but it needed to
     // happen BEFORE Fighter::update so Match could still decrement
     // stocks and start the respawn timer in the same frame. Match now owns
@@ -243,7 +391,7 @@ void Fighter::apply_hit(int damage, Vec2 knockback_velocity, int hitstun) {
 }
 
 Aabb Fighter::active_hitbox() const {
-    if (state_ != State::Attacking) return {};
+    if (state_ != State::Attacking || attack_has_hit_) return {};
     const Attack& atk = get_attack(current_attack_id_);
     if (!attack_frame_is_active(atk, attack_frame_)) return {};
     // Mirror on x when facing left; the local hitbox is "facing-right".

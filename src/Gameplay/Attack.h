@@ -13,6 +13,20 @@ enum class AttackId : int {
     Jab,
     ForwardTilt,
     NeutralAir,
+    // --- Rebirth Phase 2: full move set -----------------------------------
+    UpTilt,
+    DownTilt,
+    ForwardSmash,
+    UpSmash,
+    DownSmash,
+    ForwardAir,
+    BackAir,
+    UpAir,
+    DownAir,
+    NeutralSpecial,   // Ember Burst   - wide blast around the body
+    SideSpecial,      // Flare Dash    - dashing strike
+    UpSpecial,        // Rising Phoenix- recovery, once per airtime
+    DownSpecial,      // Ground Slam   - dive / shockwave
     Count,
 };
 
@@ -25,6 +39,13 @@ struct CombatIntent {
     bool jab_pressed   = false;
     bool ftilt_pressed = false;
     bool nair_pressed  = false;
+    // Rebirth Phase 2 additions (all default false so older call sites that
+    // brace-initialise only the first three fields keep compiling).
+    bool special_pressed = false;  // special button (direction picks which)
+    bool smash_held      = false;  // modifier: strong button becomes a smash
+    bool shield_held     = false;  // guard (parry window on the first frames)
+    bool dodge_pressed   = false;  // spot / directional dodge
+    bool surge_pressed   = false;  // activate Ember Surge when the meter is full
 };
 
 // Pure data describing one attack. All values are starting points per the
@@ -52,6 +73,11 @@ struct Attack {
     float       knockback_angle_x; // unit vector, x in attacker's local
     float       knockback_angle_y; // space; facing is applied at hit time
     Aabb        hitbox;            // local-space hitbox AABB
+    // Rebirth Phase 2: optional self-propulsion applied when the attack
+    // starts (dash / recovery specials). 0 means "leave velocity alone".
+    float       self_vx = 0.0f;    // multiplied by facing
+    float       self_vy = 0.0f;    // absolute (negative = up)
+    bool        once_per_airtime = false;  // recovery specials
 };
 
 inline int attack_total_frames(const Attack& a) {

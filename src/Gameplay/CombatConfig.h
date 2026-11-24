@@ -123,4 +123,37 @@ inline constexpr float kKoShakeMagnitude = 12.0f;
 // read as "something big happened", short enough to not nauseate.
 inline constexpr int kKoShakeFrames = 14;
 
+// --- Rebirth Phase 2: defence --------------------------------------------
+// Guard: held on the ground. The first kParryWindowFrames of a guard are a
+// parry window: a hit landing inside it is negated and the attacker is stunned.
+inline constexpr int kParryWindowFrames   = 6;
+inline constexpr int kParryAttackerStun   = 24;   // attacker punish window
+inline constexpr int kShieldMax           = 600;  // shield stamina (frames*units)
+inline constexpr int kShieldDrainPerFrame = 2;    // while guarding
+inline constexpr int kShieldRegenPerFrame = 3;    // while not guarding
+inline constexpr int kShieldDamageCost    = 40;   // per damage % absorbed
+inline constexpr int kShieldBreakStun     = 70;
+inline constexpr int kShieldBreakRestore  = 300;
+inline constexpr double kGuardPushback    = 3.0;
+// Dodge: spot dodge or short directional roll with an invulnerable window.
+inline constexpr int kDodgeFrames         = 24;
+inline constexpr int kDodgeInvulnStart    = 2;
+inline constexpr int kDodgeInvulnEnd      = 15;   // exclusive
+inline constexpr int kDodgeCooldownFrames = 40;
+inline constexpr double kDodgeSpeed       = 7.0;
+// --- Ember Surge ------------------------------------------------------------
+// Meter 0..kSurgeMeterMax. Filled by dealing damage, taking damage (smaller),
+// blocking, parrying and landing a dodge-punish. At full, the player may
+// activate Surge: for kSurgeFrames their attacks deal more damage and launch
+// further. The meter empties on activation and does not fill during Surge.
+inline constexpr int kSurgeMeterMax       = 100;
+inline constexpr int kSurgeFrames         = 300;   // 5 s
+inline constexpr int kSurgeGainPerDamageDealt = 2; // meter per damage % dealt
+inline constexpr int kSurgeGainPerDamageTaken = 1;
+inline constexpr int kSurgeGainBlock      = 3;
+inline constexpr int kSurgeGainParry      = 20;
+inline constexpr int kSurgeGainDodge      = 8;
+inline constexpr double kSurgeDamageMul   = 1.25;
+inline constexpr double kSurgeKnockbackMul= 1.15;
+
 } // namespace ember::combat

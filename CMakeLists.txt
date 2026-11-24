@@ -210,6 +210,36 @@ else()
 endif()
 
 # -----------------------------------------------------------------------------
+# Tests (CTest) - desktop only. Every tests/ember_test_*.cpp becomes one
+# executable linked against a static library of the gameplay sources.
+# Run: ctest --test-dir build --output-on-failure
+# -----------------------------------------------------------------------------
+if(NOT EMSCRIPTEN)
+    option(EMBER_BUILD_TESTS "Build the CTest suites" ON)
+    if(EMBER_BUILD_TESTS)
+        enable_testing()
+        set(EMBER_LIB_SOURCES ${EMBER_SOURCES})
+        list(REMOVE_ITEM EMBER_LIB_SOURCES ${EMBER_DESKTOP_ENTRY})
+        add_library(ember_lib STATIC ${EMBER_LIB_SOURCES})
+        target_include_directories(ember_lib PUBLIC ${CMAKE_SOURCE_DIR}/src)
+        target_link_libraries(ember_lib PUBLIC SDL3::SDL3)
+        add_executable(ember_screenshot tools/ember_screenshot.cpp)
+        target_link_libraries(ember_screenshot PRIVATE ember_lib)
+        set_target_properties(ember_screenshot PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+        file(GLOB EMBER_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/ember_test_*.cpp)
+        foreach(test_src ${EMBER_TEST_SOURCES})
+            get_filename_component(test_name ${test_src} NAME_WE)
+            add_executable(${test_name} ${test_src})
+            target_link_libraries(${test_name} PRIVATE ember_lib)
+            set_target_properties(${test_name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
+            add_test(NAME ${test_name} COMMAND ${test_name})
+            set_tests_properties(${test_name} PROPERTIES
+                ENVIRONMENT "SDL_VIDEODRIVER=dummy;SDL_AUDIODRIVER=dummy")
+        endforeach()
+    endif()
+endif()
+
+# -----------------------------------------------------------------------------
 # Installation (basic layout for future distribution)
 # -----------------------------------------------------------------------------
 include(GNUInstallDirs)

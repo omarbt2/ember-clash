@@ -7,6 +7,7 @@
 #include "Gameplay/Sprite.h"
 #include "Gameplay/Animation.h"
 #include "Physics/Motion.h"
+#include "Gameplay/CombatConfig.h"
 
 #include <cstdint>
 #include <memory>
@@ -29,7 +30,12 @@ public:
         Attacking,   // startup / active / recovery, frame is attack_frame_
         Hitstun,     // locked out; velocity came from a hit
         Dead,        // off-stage; Match handles the respawn transition
+        Guard,       // Rebirth: shielding on the ground
+        Dodge,       // Rebirth: spot / directional dodge with invuln window
     };
+
+    // Result of an incoming attack, reported to Match.
+    enum class HitOutcome { Ignored, Hit, Blocked, Parried, Dodged };
 
     // 0 = P1, 1 = P2. Determines spawn position (via Arena) and palette.
     Fighter(int player_index, const Arena& arena);
@@ -49,6 +55,27 @@ public:
     int  hitstun_frames() const { return hitstun_frames_; }
     int  invuln_frames() const { return invuln_frames_; }
     const Vec2& velocity() const { return velocity_; }     // read-only (M4 AI)
+    // --- Rebirth Phase 2 accessors ---
+    int  guard_frames() const { return guard_frames_; }
+    int  shield() const { return shield_; }
+    int  dodge_frame() const { return dodge_frame_; }
+    int  dodge_cooldown() const { return dodge_cooldown_; }
+    bool dodge_invulnerable() const {
+        return state_ == State::Dodge && dodge_frame_ >= combat::kDodgeInvulnStart
+            && dodge_frame_ < combat::kDodgeInvulnEnd;
+    }
+    bool in_parry_window() const {
+        return state_ == State::Guard && guard_frames_ <= combat::kParryWindowFrames;
+    }
+    int  surge_meter() const { return surge_meter_; }
+    int  surge_frames() const { return surge_frames_; }
+    bool surge_active() const { return surge_frames_ > 0; }
+    bool attack_has_hit() const { return attack_has_hit_; }
+    int  parry_flash() const { return parry_flash_; }
+    void mark_attack_hit() { attack_has_hit_ = true; }
+    void add_surge(int amount);
+    void stun_for(int frames);   // generic stun (parried attacker, shield break)
+    void set_surge_meter_for_test(int m) { surge_meter_ = m; }
 
     // Mutable accessors are intentionally not part of the public surface;
     // they're for the headless combat test and for engine glue that needs
@@ -108,6 +135,10 @@ public:
                    Vec2 knockback_velocity,
                    int hitstun_frames);
 
+    // Rebirth Phase 2: full hit resolution including guard, parry, dodge.
+    HitOutcome receive_hit(int damage, Vec2 knockback_velocity,
+                           int hitstun_frames, int attacker_facing);
+
     // Renders the fighter using its assigned palette color. When in an
     // active attack frame, also draws the active hitbox outline in red so
     // combat is visible during M3 development. The hitbox overlay is a
@@ -153,7 +184,19 @@ private:
 
     // Internal: attempt to start a new attack based on combat_intent and
     // current grounded state. Returns true if an attack was started.
-    bool try_start_attack(const CombatIntent& combat_intent);
+    int   shield_{600};
+    int   guard_frames_{0};
+    int   dodge_frame_{0};
+    int   dodge_cooldown_{0};
+    int   dodge_dir_{0};
+    int   surge_meter_{0};
+    int   surge_frames_{0};
+    int   parry_flash_{0};
+    bool  up_special_used_{false};
+    bool  air_dodge_used_{false};
+
+    bool try_start_attack(const PlayerIntent& motion_intent,
+                          const CombatIntent& combat_intent);
 
     // Internal: advance the attack clock; return to Idle when the swing ends.
     void advance_attack();

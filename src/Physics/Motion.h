@@ -24,6 +24,13 @@ struct PlayerIntent {
     bool move_right  = false;
     bool jump_pressed = false;  // rising edge this frame
     bool fast_fall_held = false;
+    bool up_held = false;       // Rebirth: aim for up tilts/smashes/airs/special
+};
+
+// Rebirth Phase 3: per-character tuning applied on top of PhysicsConfig.
+struct MotionTuning {
+    double walk = 1.0;
+    double jump = 1.0;
 };
 
 struct MotionState {
@@ -41,6 +48,7 @@ struct MotionResult {
 // One simulation tick. dt is in seconds; the function scales the per-tick
 // physics values by (dt / kFixedStep) so behavior is the same whether the
 // game runs at 60 Hz, 120 Hz, or variable.
-MotionResult step_motion(const MotionState& current, const PlayerIntent& intent, double dt);
+MotionResult step_motion(const MotionState& current, const PlayerIntent& intent, double dt,
+                         MotionTuning tuning = {});
 
 } // namespace ember
