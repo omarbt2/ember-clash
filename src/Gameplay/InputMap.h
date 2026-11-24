@@ -35,6 +35,13 @@ struct KeyBindings {
     SDL_Keycode jab{SDLK_J};
     SDL_Keycode ftilt{SDLK_K};
     SDL_Keycode nair{SDLK_L};
+    // Rebirth: the remaining six of the 13-key layout.
+    SDL_Keycode up{SDLK_I};         // aim up (up tilt / up smash / up air / up special)
+    SDL_Keycode special{SDLK_U};    // special button (direction picks which special)
+    SDL_Keycode smash{SDLK_LSHIFT}; // modifier: strong button becomes a smash
+    SDL_Keycode shield{SDLK_O};     // guard / parry
+    SDL_Keycode dodge{SDLK_P};      // spot / directional dodge
+    SDL_Keycode surge{SDLK_Y};      // Ember Surge
 
     // Equality is value-wise so Settings can spot a real change
     // before flushing. SDL_Keycode is a 32-bit int, so a hand-rolled
@@ -46,12 +53,18 @@ struct KeyBindings {
                fast_fall  == o.fast_fall  &&
                jab        == o.jab        &&
                ftilt      == o.ftilt      &&
-               nair       == o.nair;
+               nair       == o.nair       &&
+               up         == o.up         &&
+               special    == o.special    &&
+               smash      == o.smash      &&
+               shield     == o.shield     &&
+               dodge      == o.dodge      &&
+               surge      == o.surge;
     }
     bool operator!=(const KeyBindings& o) const { return !(*this == o); }
 
     // Returns a pointer to the slot for the action `index` (0..6)
-    // in declaration order, or nullptr if `index` is out of range.
+    // in declaration order (0..12), or nullptr if `index` is out of range.
     // The remap UI uses this to look up the active slot when the
     // user is editing a row without a switch in user code.
     SDL_Keycode* slot(int index) {
@@ -63,6 +76,12 @@ struct KeyBindings {
             case 4: return &jab;
             case 5: return &ftilt;
             case 6: return &nair;
+            case 7: return &up;
+            case 8: return &special;
+            case 9: return &smash;
+            case 10: return &shield;
+            case 11: return &dodge;
+            case 12: return &surge;
             default: return nullptr;
         }
     }
@@ -72,7 +91,7 @@ struct KeyBindings {
 
     // Number of rebindable actions; used to size the remap menu
     // row list and to range-check `slot()`.
-    static constexpr int kActionCount = 7;
+    static constexpr int kActionCount = 13;
 };
 
 // Translates raw keyboard state into platform-agnostic player intents. This

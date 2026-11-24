@@ -17,9 +17,23 @@ namespace ember {
 // input layers will plug in here later without disturbing gameplay code.
 class InputManager {
 public:
-    // Maximum number of distinct scancode/keycode slots we track. Larger
-    // keycodes are bucketed into the final slot.
-    static constexpr int kMaxKeys = 512;
+    // Slot table layout (1024 entries):
+    //   [0, 512)     plain keycodes (ASCII / Unicode below 512)
+    //   [512, 1024)  scancode-derived keycodes, i.e. SDL's
+    //                (1<<30 | scancode) values for arrows, keypad, Shift,
+    //                Ctrl, function keys... slot = 512 + scancode
+    // Anything else (extended/unknown keycodes) shares the final slot.
+    // Before this layout every keycode >= 512 collapsed into ONE slot, so
+    // e.g. pressing Left also read as Right/Up/Down and Shift aliased with
+    // the whole keypad - which made arrow-key local 2P unplayable.
+    static constexpr int kMaxKeys = 1024;
+    static constexpr int kPlainKeyLimit = 512;
+    static constexpr int kScancodeBit   = 1 << 30;
+
+    // Maps a keycode to its slot, and back. key_from_index() is the exact
+    // inverse for every slot that key_index() can produce for a real key.
+    static int        key_index(SDL_Keycode key);
+    static SDL_Keycode key_from_index(int index);
 
     InputManager();
 
@@ -74,7 +88,7 @@ public:
     // path, which is the only path the production code ever exercises.
     // -----------------------------------------------------------------
     void set_held_for_test(SDL_Keycode key, bool is_down) {
-        const int idx = (key < 0) ? (kMaxKeys - 1) : (key >= kMaxKeys ? (kMaxKeys - 1) : key);
+        const int idx = key_index(key);
         current_[idx] = is_down;
         any_current_ = any_current_ || is_down;
     }

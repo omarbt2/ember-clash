@@ -71,12 +71,13 @@ struct Settings {
     // values) so Settings does not need to pull in the SDL header.
     // The order matches KeyBindings in Gameplay/InputMap.h:
     //   0 = move_left, 1 = move_right, 2 = jump, 3 = fast_fall,
-    //   4 = jab, 5 = ftilt, 6 = nair.
+    //   4 = jab, 5 = ftilt, 6 = nair, 7 = up, 8 = special, 9 = smash,
+    //   10 = shield, 11 = dodge, 12 = surge.
     // The defaults are the original WASD + Space + JKL set; an
     // out-of-range integer (e.g. 0 = SDLK_UNKNOWN) is replaced with
     // the corresponding default at load time so a corrupt file
     // cannot leave the player with no input.
-    std::array<std::int32_t, 7> p1_bindings{0};
+    std::array<std::int32_t, 13> p1_bindings{0};
 
     // P2 key bindings. M13.1: same shape as P1, defaults are the
     // arrow-keys + numpad layout (distinct from P1's WASD+JKL).
@@ -84,7 +85,7 @@ struct Settings {
     // shared between P1 and P2, so we persist both sets. A future
     // 2P local mode (M9+) flips a switch and these are read by
     // InputMap as-is.
-    std::array<std::int32_t, 7> p2_bindings{0};
+    std::array<std::int32_t, 13> p2_bindings{0};
 
     // Reset everything to compile-time defaults. Used by the
     // "Restore defaults" button on the settings screen and by the

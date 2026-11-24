@@ -517,7 +517,7 @@ int main() {
             check(b.slot(4) == &b.jab,        "slot(4) -> jab");
             check(b.slot(5) == &b.ftilt,      "slot(5) -> ftilt");
             check(b.slot(6) == &b.nair,       "slot(6) -> nair");
-            check(b.slot(7) == nullptr,       "slot(7) (out of range) is nullptr");
+            check(b.slot(KeyBindings::kActionCount) == nullptr,       "slot(13) (out of range) is nullptr");
             check(b.slot(-1) == nullptr,      "slot(-1) (out of range) is nullptr");
             // Mutating through slot() is observable via the
             // struct (no defensive copy).

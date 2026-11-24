@@ -90,7 +90,10 @@ void Settings::reset_to_defaults() {
     //   0 = move_left,  1 = move_right,
     //   2 = jump,       3 = fast_fall,
     //   4 = jab,        5 = ftilt,       6 = nair
-    p1_bindings = {{97, 100, 119, 115, 106, 107, 108}};
+    // 7 = up (I), 8 = special (U), 9 = smash (LSHIFT), 10 = shield (O),
+    // 11 = dodge (P), 12 = surge (Y).
+    p1_bindings = {{97, 100, 119, 115, 106, 107, 108,
+                    105, 117, 1073742049, 111, 112, 121}};
 
     // P2 defaults: arrow-keys + numpad (distinct from P1's
     // WASD+JKL). The literals are SDL_Keycode values:
@@ -98,7 +101,9 @@ void Settings::reset_to_defaults() {
     //   DOWN=1073741905, KP_1=1073741913, KP_2=1073741914,
     //   KP_3=1073741915. Hardcoded for the same reason as P1.
     p2_bindings = {{1073741904, 1073741903, 1073741906, 1073741905,
-                    1073741913, 1073741914, 1073741915}};
+                    1073741913, 1073741914, 1073741915,
+                    1073741920, 1073741916, 1073741922, 1073741917,
+                    1073741918, 1073741919}};
 }
 
 bool Settings::operator==(const Settings& other) const {
@@ -162,6 +167,12 @@ Settings load_settings_from_file(const std::string& path) {
         else if (read_int (t, "p1_jab",         s.p1_bindings[4])) {}
         else if (read_int (t, "p1_ftilt",       s.p1_bindings[5])) {}
         else if (read_int (t, "p1_nair",        s.p1_bindings[6])) {}
+        else if (read_int (t, "p1_up",           s.p1_bindings[7])) {}
+        else if (read_int (t, "p1_special",      s.p1_bindings[8])) {}
+        else if (read_int (t, "p1_smash",        s.p1_bindings[9])) {}
+        else if (read_int (t, "p1_shield",       s.p1_bindings[10])) {}
+        else if (read_int (t, "p1_dodge",        s.p1_bindings[11])) {}
+        else if (read_int (t, "p1_surge",        s.p1_bindings[12])) {}
         // P2 key bindings. M13.1: same shape as P1. Older
         // settings files (M13 and earlier) have no P2 keys; the
         // p2_bindings array is left at its reset_to_defaults
@@ -173,6 +184,12 @@ Settings load_settings_from_file(const std::string& path) {
         else if (read_int (t, "p2_jab",         s.p2_bindings[4])) {}
         else if (read_int (t, "p2_ftilt",       s.p2_bindings[5])) {}
         else if (read_int (t, "p2_nair",        s.p2_bindings[6])) {}
+        else if (read_int (t, "p2_up",           s.p2_bindings[7])) {}
+        else if (read_int (t, "p2_special",      s.p2_bindings[8])) {}
+        else if (read_int (t, "p2_smash",        s.p2_bindings[9])) {}
+        else if (read_int (t, "p2_shield",       s.p2_bindings[10])) {}
+        else if (read_int (t, "p2_dodge",        s.p2_bindings[11])) {}
+        else if (read_int (t, "p2_surge",        s.p2_bindings[12])) {}
         // Unknown key: silently ignored.
     }
 
@@ -236,6 +253,12 @@ bool save_settings_to_file(const std::string& path, const Settings& s) {
     write_int (o, "p1_jab",         s.p1_bindings[4]);
     write_int (o, "p1_ftilt",       s.p1_bindings[5]);
     write_int (o, "p1_nair",        s.p1_bindings[6]);
+    write_int (o, "p1_up",           s.p1_bindings[7]);
+    write_int (o, "p1_special",      s.p1_bindings[8]);
+    write_int (o, "p1_smash",        s.p1_bindings[9]);
+    write_int (o, "p1_shield",       s.p1_bindings[10]);
+    write_int (o, "p1_dodge",        s.p1_bindings[11]);
+    write_int (o, "p1_surge",        s.p1_bindings[12]);
     write_int (o, "p2_move_left",   s.p2_bindings[0]);
     write_int (o, "p2_move_right",  s.p2_bindings[1]);
     write_int (o, "p2_jump",        s.p2_bindings[2]);
@@ -243,6 +266,12 @@ bool save_settings_to_file(const std::string& path, const Settings& s) {
     write_int (o, "p2_jab",         s.p2_bindings[4]);
     write_int (o, "p2_ftilt",       s.p2_bindings[5]);
     write_int (o, "p2_nair",        s.p2_bindings[6]);
+    write_int (o, "p2_up",           s.p2_bindings[7]);
+    write_int (o, "p2_special",      s.p2_bindings[8]);
+    write_int (o, "p2_smash",        s.p2_bindings[9]);
+    write_int (o, "p2_shield",       s.p2_bindings[10]);
+    write_int (o, "p2_dodge",        s.p2_bindings[11]);
+    write_int (o, "p2_surge",        s.p2_bindings[12]);
 
     const std::string tmp = path + ".tmp";
     {

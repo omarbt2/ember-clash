@@ -10,21 +10,23 @@
 
 namespace ember {
 
-namespace {
 
-// Map an SDL_Keycode (which is platform-stable: SDLK_* / SDL_KeyCode values)
-// into a small array index. SDL_Keycode is a 32-bit value, but most of the
-// range is unused; we bucket anything below kMaxKeys directly and clamp
-// larger values to a sentinel slot.
-int bucket_index(SDL_Keycode key) {
-    constexpr int kSentinel = InputManager::kMaxKeys - 1;
-    if (key < 0) return kSentinel;
-    const int idx = static_cast<int>(key);
-    if (idx >= InputManager::kMaxKeys) return kSentinel;
-    return idx;
+int InputManager::key_index(SDL_Keycode key) {
+    constexpr int kSentinel = kMaxKeys - 1;
+    const long long k = static_cast<long long>(key);
+    if (k < 0) return kSentinel;
+    if (k < kPlainKeyLimit) return static_cast<int>(k);
+    if ((k & kScancodeBit) != 0 && (k & ~static_cast<long long>(kScancodeBit)) < kPlainKeyLimit) {
+        return kPlainKeyLimit + static_cast<int>(k & ~static_cast<long long>(kScancodeBit));
+    }
+    return kSentinel;
 }
 
-} // namespace
+SDL_Keycode InputManager::key_from_index(int index) {
+    if (index < 0 || index >= kMaxKeys) return 0;
+    if (index < kPlainKeyLimit) return static_cast<SDL_Keycode>(index);
+    return static_cast<SDL_Keycode>(kScancodeBit | (index - kPlainKeyLimit));
+}
 
 InputManager::InputManager() {
     std::memset(current_,  0, sizeof(current_));
@@ -45,7 +47,7 @@ void InputManager::update() {
                 break;
 
             case SDL_EVENT_KEY_DOWN: {
-                const int idx = bucket_index(event.key.key);
+                const int idx = key_index(event.key.key);
                 if (event.key.repeat == 0) {
                     current_[idx] = true;
                 }
@@ -54,7 +56,7 @@ void InputManager::update() {
             }
 
             case SDL_EVENT_KEY_UP: {
-                const int idx = bucket_index(event.key.key);
+                const int idx = key_index(event.key.key);
                 current_[idx] = false;
                 // any_current_ may still be true from other held keys.
                 break;
@@ -73,16 +75,16 @@ void InputManager::update() {
 }
 
 bool InputManager::held(SDL_Keycode key) const {
-    return current_[bucket_index(key)];
+    return current_[key_index(key)];
 }
 
 bool InputManager::pressed(SDL_Keycode key) const {
-    const int idx = bucket_index(key);
+    const int idx = key_index(key);
     return current_[idx] && !previous_[idx];
 }
 
 bool InputManager::released(SDL_Keycode key) const {
-    const int idx = bucket_index(key);
+    const int idx = key_index(key);
     return !current_[idx] && previous_[idx];
 }
 
@@ -100,7 +102,7 @@ SDL_Keycode InputManager::any_pressed_key() const {
     // transition happens.
     for (int i = 0; i < kMaxKeys; ++i) {
         if (current_[i] && !previous_[i]) {
-            return static_cast<SDL_Keycode>(i);
+            return key_from_index(i);
         }
     }
     return 0;
