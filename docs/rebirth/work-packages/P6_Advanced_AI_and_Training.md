@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Purpose | Implementation plan for P6. No implementation is done by this document. |
-| Status | DRAFT - pending owner review |
+| Status | IN PROGRESS - PARTIALLY VERIFIED (bounded input record/replay and four presets; advanced planner/UI calibration remains) |
 | Owner | Project owner (omarbt2); drafted by Claude |
 | Depends on | 24_PRODUCTION_ROADMAP.md, P3 |
 | Related | 24, 26 |

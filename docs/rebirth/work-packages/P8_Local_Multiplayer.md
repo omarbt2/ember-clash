@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Purpose | Implementation plan for P8. No implementation is done by this document. |
-| Status | DRAFT - pending owner review |
+| Status | IN PROGRESS - PARTIALLY VERIFIED (SDL hot-plug queue ownership fixed; only one primary pad and two fighters remain) |
 | Owner | Project owner (omarbt2); drafted by Claude |
 | Depends on | 24_PRODUCTION_ROADMAP.md, P2, P7 |
 | Related | 24, 26 |
