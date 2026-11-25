@@ -1,3 +1,5 @@
+> **SUPERSEDED** by the production bible in `docs/rebirth/` (see `docs/rebirth/README.md`). Kept for history; some values here were corrected in `docs/rebirth/00_PLAN_REVIEW_CORRECTIONS.md`.
+
 # EMBER CLASH REBIRTH — Production Roadmap
 
 Complexity: S ≤ 1 wk, M 1–3, L 3–6, XL 6+ weeks for one full-time developer (estimates, ±50%). Every phase ends with a Git checkpoint tag `rebirth-Pn` on a branch, no force-push.

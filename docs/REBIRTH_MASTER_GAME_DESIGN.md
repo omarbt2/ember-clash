@@ -1,3 +1,5 @@
+> **SUPERSEDED** by the production bible in `docs/rebirth/` (see `docs/rebirth/README.md`). Kept for history; some values here were corrected in `docs/rebirth/00_PLAN_REVIEW_CORRECTIONS.md`.
+
 # EMBER CLASH REBIRTH — Master Game Design
 
 Baseline: `dev/rebirth-continue` @ `2eeceae` (verified, 14/14 CTest suites pass headless). See Technical Architecture §1 for the audit matrix.

@@ -1,3 +1,5 @@
+> **SUPERSEDED** by the production bible in `docs/rebirth/` (see `docs/rebirth/README.md`). Kept for history; some values here were corrected in `docs/rebirth/00_PLAN_REVIEW_CORRECTIONS.md`.
+
 # EMBER CLASH REBIRTH — Art and Asset Pipeline
 
 ## 1. Tool inventory (honest)

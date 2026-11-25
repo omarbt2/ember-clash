@@ -1,0 +1,61 @@
+# Work Package P9: Modes and Full UI
+
+| Field | Value |
+|---|---|
+| Purpose | Implementation plan for P9. No implementation is done by this document. |
+| Status | DRAFT - pending owner review |
+| Owner | Project owner (omarbt2); drafted by Claude |
+| Depends on | 24_PRODUCTION_ROADMAP.md, P8 |
+| Related | 24, 26 |
+| Revision date | 2026-11-24 |
+| Open questions | See 27_DECISION_LOG.md |
+
+Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared constants are defined only in [00_SHARED_CONSTANTS.md](../00_SHARED_CONSTANTS.md) and referenced as [SC-n].
+
+---
+
+## Objective
+All first-release modes and full UI.
+
+## Entry criteria
+Phases complete: P8; owner approval of this phase; baseline commit and CI green (from P2 on). Starting baseline assumption: `dev/rebirth-continue` @ `2eeceae` plus approved prior phases; re-verify by running the build and tests before starting.
+
+## Scope
+13_UI_UX: mode/char/stage select, team, results, settings, rebinding, Arcade, Survival, profile stats.
+
+## Non-goals
+Anything owned by a later phase; changes to approved shared constants without a Decision Log entry.
+
+## Ordered task breakdown
+1. Menu framework rework
+2. Mode rules
+3. Settings/rebinding
+4. Results/rematch
+5. Tutorial
+(each task is split into subtasks in the implementing session; list them in the PR description.)
+
+## Expected changed areas / new files
+src/UI, src/Gameplay modes
+
+## Technical references
+Roadmap [24](../24_PRODUCTION_ROADMAP.md), architecture [18](../18_TECHNICAL_ARCHITECTURE.md), plus phase-relevant docs in [index](../README.md).
+
+## Estimate and risk
+8-12 FT weeks; see [26](../26_RISK_REGISTER.md).
+
+## Tests
+Automated: menu flow tests. Manual: UX pass with 5 testers. Build: Release build with 0 warnings, all CTest suites green on Linux (and Windows/WASM from P2).
+
+## Acceptance checklist
+- [ ] no unbuilt menu entry; no dead ends
+- [ ] No unverified claim recorded as verified; evidence files saved under `docs/rebirth/evidence/`
+- [ ] Docs updated if decisions changed
+
+## Exit criteria / gate
+Beta feature complete. Git checkpoint: tag `rebirth-phase-P9-done` only after the exit gate passes.
+
+## Rollback / recovery
+Feature flags; never force-push; keep previous tags.
+
+## Next phase dependencies
+P10, P12, P14
