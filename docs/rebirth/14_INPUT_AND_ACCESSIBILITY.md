@@ -7,7 +7,7 @@
 | Owner | Project owner (omarbt2); drafted by Claude |
 | Depends on | 00_SHARED_CONSTANTS.md |
 | Related | 13, 15 |
-| Revision date | 2026-11-24 |
+| Revision date | 2026-11-25 |
 | Open questions | See 27_DECISION_LOG.md |
 
 Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared constants are defined only in [00_SHARED_CONSTANTS.md](00_SHARED_CONSTANTS.md) and referenced as [SC-n].
@@ -15,7 +15,7 @@ Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared
 ---
 
 ## 1. Baseline (VERIFIED)
-13 actions [SC-6] mapped in `KeyBindings` (A/D/W/S/J/K/L/I/U/LShift/O/P/Y for P1); keycode-aliasing bug fixed in `2eeceae`; two-human input tested at Match level; P2 keyboard bindings exist but are not user-editable. Gamepad code exists in `Input/Gamepad.h` and `Haptics` - fighter control via pad is UNVERIFIED.
+13 actions [SC-6] mapped in `KeyBindings` (A/D/W/S/J/K/L/I/U/LShift/O/P/Y for P1); keycode-aliasing bug fixed in `2eeceae`; two-human input tested at Match level; P2 keyboard bindings exist and the recovery UI now exposes all 13 actions for both profiles; P2 local-human play is still not wired in the app menu. Gamepad code exists in `Input/Gamepad.h` and `Haptics` - fighter control via pad is UNVERIFIED.
 
 ## 2. Profiles
 Keyboard profile A (default P1), profile B (alternate P2 for local 1v1 only), up to 3 more players only by gamepad. Gamepad default: left stick/D-pad move, A jump, X jab, Y ftilt, B special, RB smash modifier, LB shield, RT dodge, LT/Back Surge (initial).

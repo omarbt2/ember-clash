@@ -14,7 +14,7 @@ Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared
 
 ---
 
-This package replaces the preliminary six documents (`docs/REBIRTH_*.md`, commit `644bd8d`), which are kept for history and marked superseded. It is planning documentation only: **no source code was changed and no phase beyond P0 is implemented.**
+This package replaces the preliminary six documents (`docs/REBIRTH_*.md`, commit `644bd8d`), which are kept for history and marked superseded. At commit `d48fe96`, it was planning documentation only: no source code was changed in that documentation commit and no roadmap phase beyond P0 was represented as complete. Subsequent recovery changes and their verification limits are recorded in [the 2026-11-25 evidence report](evidence/2026-11-25-input-and-menu-recovery.md).
 
 Reading order: 00_SHARED_CONSTANTS -> 00_BASELINE_AUDIT -> 00_PLAN_REVIEW_CORRECTIONS -> 01..29 -> fighters/ -> work-packages/.
 

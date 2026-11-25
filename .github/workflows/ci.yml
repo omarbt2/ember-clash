@@ -1,0 +1,65 @@
+name: Ember Clash CI
+
+on:
+  push:
+    branches:
+      - master
+      - 'rebirth/**'
+      - 'reconstruction/**'
+      - 'dev/**'
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ember-clash-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  docs:
+    name: Production Bible consistency
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Validate production documentation
+        run: python3 tools/check_rebirth_docs.py
+
+  linux-gcc:
+    name: Linux Release build and headless tests
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Configure Release
+        run: >-
+          cmake -S . -B build -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DEMBER_BUILD_TESTS=ON
+      - name: Build game and test suites
+        run: cmake --build build --parallel 2
+      - name: Run headless regression suites
+        env:
+          SDL_VIDEODRIVER: dummy
+          SDL_AUDIODRIVER: dummy
+        run: ctest --test-dir build --output-on-failure
+
+  windows-msvc:
+    name: Windows Release build and tests
+    runs-on: windows-2022
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure Release
+        run: >-
+          cmake -S . -B build -A x64
+          -DCMAKE_BUILD_TYPE=Release
+          -DEMBER_BUILD_TESTS=ON
+      - name: Build game and test suites
+        run: cmake --build build --config Release --parallel 2
+      - name: Run regression suites
+        run: ctest --test-dir build -C Release --output-on-failure

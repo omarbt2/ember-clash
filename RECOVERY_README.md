@@ -1,5 +1,7 @@
 # Ember Clash - Rebirth Recovery Snapshot
 
+> **Historical snapshot:** the first section below records the earlier `rebirth/phase0` reset state. It is not the latest recovered source state. The later source bundle contains branch `dev/rebirth-continue` at `2eeceae`; the production plan and the 2026-11-25 recovery checks are recorded under `docs/rebirth/`.
+
 **Honest summary:** this is a snapshot of the real working directory at the moment of recovery.
 It is NOT the full Rebirth build. A sandbox reset destroyed the earlier Rebirth work
 (local commits, never pushed) and it has not been recovered. Only a partial re-application of the
@@ -39,8 +41,8 @@ No Windows or WebAssembly build was verified. No audible-audio or real-gamepad v
 Result at snapshot: build succeeds with no errors; **13/13 existing test suites pass** (the original 13).
 No new tests exist in this snapshot. Needs CMake >= 3.20, a C++20 compiler; SDL3 is fetched by CMake (network needed on first configure).
 
-## How to resume
-1. Unzip, `cd Ember-Clash-Rebirth-Recovery`, `git status` to see the uncommitted work.
-2. `git fetch origin && git merge origin/master` (conflict-free at snapshot time).
-3. Commit, then push to a branch: `git push -u origin rebirth/phase0`  (never force-push master).
-4. Re-apply the lost Rebirth work in small tested commits, pushing after each.
+## Later recovery state (2026-11-25)
+
+The supplied recovery package also contains a later source bundle at `dev/rebirth-continue` (`2eeceaea2452164e4fe8c064d8e0572ce6678b5e`) and the complete Production Bible. That later source already wires the 13-key layout into gameplay and includes the rebirth input regression suite; therefore the "not yet wired" list above describes only the earlier reset snapshot.
+
+The 2026-11-25 recovery execution prepared additional fixes for persistent key state, invalid keycode handling, the complete 13-action Settings UI, dynamic Controls labels, and live binding refresh. Its isolated checks passed, but full SDL3 configuration/build and CTest were blocked by unavailable GitHub DNS. See `docs/rebirth/evidence/2026-11-25-input-and-menu-recovery.md` for exact evidence. The production roadmap remains unfinished; do not treat this snapshot note as a completion claim.

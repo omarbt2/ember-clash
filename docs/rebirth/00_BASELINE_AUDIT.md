@@ -7,7 +7,7 @@
 | Owner | Project owner (omarbt2); drafted by Claude |
 | Depends on | 00_SHARED_CONSTANTS.md |
 | Related | 00_PLAN_REVIEW_CORRECTIONS.md, 18_TECHNICAL_ARCHITECTURE.md |
-| Revision date | 2026-11-24 |
+| Revision date | 2026-11-25 |
 | Open questions | See 27_DECISION_LOG.md |
 
 Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared constants are defined only in [00_SHARED_CONSTANTS.md](00_SHARED_CONSTANTS.md) and referenced as [SC-n].
@@ -25,9 +25,10 @@ Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared
 | Bundle validity | `git bundle verify` on `ember-clash-rebirth-plan.bundle`: complete history - VERIFIED; original `ember-clash-rebirth.bundle` listed heads and cloned cleanly - VERIFIED |
 | Working tree | clean at start of this task - VERIFIED |
 | Toolchain | Ubuntu 24.04, g++ 13.3.0, CMake 4.4.5 (pip), Ninja, SDL3 `release-3.2.10` fetched by CMake |
-| Build | Release, 342 steps, 0 compiler warnings - VERIFIED (earlier session; build dir reused and `ctest` re-run in this session) |
-| Tests | `ctest`: 14/14 pass with `SDL_VIDEODRIVER=dummy SDL_AUDIODRIVER=dummy` - VERIFIED |
-| Not verified | Windows build, WebAssembly rebuild/run, real display, audible audio, gamepad hardware, any network |
+| Build | Historical supplied-session evidence: Release, 342 steps, 0 compiler warnings - VERIFIED for that environment; not reproduced in the 2026-11-25 recovery execution |
+| Tests | Historical supplied-session evidence: `ctest` 14/14 pass with dummy drivers - VERIFIED for that environment; not re-run on 2026-11-25 because SDL3 could not be fetched |
+| Current recovery limitations | Full SDL3 configure/build/CTest blocked by GitHub DNS/network failure; see [2026-11-25 recovery evidence](evidence/2026-11-25-input-and-menu-recovery.md) |
+| Not verified | Windows build, WebAssembly rebuild/run, real display, audible audio, gamepad hardware, online play |
 | Discrepancies vs reports | None in hashes/branches. One earlier-plan claim corrected, see 00_PLAN_REVIEW_CORRECTIONS.md |
 
 Test suites (14, about 4,100 lines): ai, m5, m6, m6b, m6c, m7, m8, m11 (determinism), m12, m125_audio, m14, p15_playability, p17_playability, rebirth_input. They are headless logic tests. They cannot prove visuals, audible sound, hardware input or feel.
@@ -64,3 +65,10 @@ Columns: Implemented / Reachable in play / Visually verified / Headless-tested.
 - Test-only setters (`set_*_for_test`) live in the production `Fighter` class.
 - `Menu.cpp` is 943 lines (largest file); `App.cpp` 644.
 - Combat tables are `static` C++ arrays in `Attack.cpp`.
+
+
+## 4. Recovery execution on 2026-11-25
+
+The current execution re-inventoried the nested source and documentation bundles and prepared targeted fixes in input state tracking, keycode validation, 13-action rebinding, and Controls-page display. Isolated compilation and runtime probes passed, and the 55-file documentation checker passed. The full desktop build could not be configured because CMake FetchContent could not resolve `github.com` to fetch SDL3 `release-3.2.10`; therefore the full CTest suite was not run in this execution. See the [detailed evidence record](evidence/2026-11-25-input-and-menu-recovery.md).
+
+A Linux Release + headless test workflow is defined in `.github/workflows/ci.yml`, but it has not yet completed a GitHub Actions run. No new CI-green claim is made here.
