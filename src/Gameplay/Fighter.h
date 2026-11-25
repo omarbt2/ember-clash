@@ -151,6 +151,8 @@ private:
     Vec2  velocity_{};
     bool  grounded_{false};
     int   jumps_remaining_{2};
+    int   jump_buffer_ticks_{0};
+    int   coyote_ticks_{0};
     bool  dead_{false};
     int   damage_percent_{0};
     int   facing_{1};

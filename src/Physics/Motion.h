@@ -25,6 +25,7 @@ struct PlayerIntent {
     bool jump_pressed = false;  // rising edge this frame
     bool fast_fall_held = false;
     bool up_held = false;       // Rebirth: aim for up tilts/smashes/airs/special
+    bool run_held = false;      // Rebirth: run modifier while moving
 };
 
 // Rebirth Phase 3: per-character tuning applied on top of PhysicsConfig.
@@ -37,12 +38,16 @@ struct MotionState {
     Vec2  velocity{0.0, 0.0};
     bool  grounded{false};
     int   jumps_remaining{2};
+    int   jump_buffer_ticks{0};
+    int   coyote_ticks{0};
 };
 
 struct MotionResult {
     Vec2  velocity{0.0, 0.0};
     bool  grounded{false};
     int   jumps_remaining{2};
+    int   jump_buffer_ticks{0};
+    int   coyote_ticks{0};
 };
 
 // One simulation tick. dt is in seconds; the function scales the per-tick

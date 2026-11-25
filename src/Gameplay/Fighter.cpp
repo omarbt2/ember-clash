@@ -320,10 +320,12 @@ void Fighter::update(const PlayerIntent& motion_intent,
 
     // --- Motion ------------------------------------------------------------
     if (state_ == State::Idle) {
-        const MotionState in{velocity_, grounded_, jumps_remaining_};
+        const MotionState in{velocity_, grounded_, jumps_remaining_, jump_buffer_ticks_, coyote_ticks_};
         const MotionResult out = step_motion(in, motion_intent, /*dt*/ 1.0 / 60.0);
         velocity_        = out.velocity;
         jumps_remaining_ = out.jumps_remaining;
+        jump_buffer_ticks_ = out.jump_buffer_ticks;
+        coyote_ticks_ = out.coyote_ticks;
     } else if (state_ == State::Guard) {
         velocity_.x *= 0.5;
         velocity_ = apply_gravity_only(velocity_, false);
@@ -346,7 +348,7 @@ void Fighter::update(const PlayerIntent& motion_intent,
 
     // --- Resolve arena collision -------------------------------------------
     grounded_ = arena.resolve_collision(body_, velocity_);
-    if (grounded_) { up_special_used_ = false; air_dodge_used_ = false; }
+    if (grounded_) { up_special_used_ = false; air_dodge_used_ = false; jumps_remaining_ = 2; }
     // M5 note: the death-zone check used to live here, but it needed to
     // happen BEFORE Fighter::update so Match could still decrement
     // stocks and start the respawn timer in the same frame. Match now owns

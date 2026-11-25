@@ -17,6 +17,11 @@ inline constexpr double kGravity = 0.8;
 // Maximum horizontal walk speed in px/tick.
 inline constexpr double kWalkSpeed = 6.0;
 
+// Rebirth movement windows are measured in fixed simulation ticks (60 Hz).
+inline constexpr int kJumpBufferTicks = 6;
+inline constexpr int kCoyoteTicks = 6;
+inline constexpr double kRunSpeedMultiplier = 1.45;
+
 // Vertical velocity applied on the first jump (negative = upward).
 inline constexpr double kFirstJumpVelocity = -14.0;
 
