@@ -61,3 +61,22 @@ Not complete. Existing basic AI behavior is not equivalent to the planned percep
 3. Complete P4 fighter move tables and balance harness.
 4. Decide and prove the P5 art pipeline with an in-engine Kaelen vertical slice before mass asset production.
 5. Implement P6 AI architecture and Training Mode after combat contracts stabilize.
+
+## Additional continuation slice — Training capture and Expert preset
+
+Implemented after the initial P0–P2 checkpoint:
+- Added `ai::kExpert` with a 14-tick reaction delay (inside the documented 12–16 tick human-floor band), 92 attack frequency, 100 recovery priority, and a distinct deterministic seed.
+- Added a device-neutral `training::Recorder` that stores up to 600 pairs of `PlayerIntent`/`CombatIntent`, supports record/stop/playback/clear, and reports capacity overflow without writing out of bounds.
+- Added standalone regression tests for exact intent round-trip, playback termination, 600-tick capacity, overflow handling, and difficulty ordering/bounds.
+
+Verification run:
+- `ember_test_training_recorder`: compiled with `-std=c++20 -Wall -Wextra -Werror` and passed.
+- `ember_test_ai_presets`: compiled with `-std=c++20 -Wall -Wextra -Werror` and passed.
+- `ember_test_rebirth_motion`: compiled with `-std=c++20 -Wall -Wextra -Werror` and passed.
+- `tools/check_rebirth_docs.py`: PASS (58 Markdown files).
+- `git diff --check`: PASS.
+
+Limits:
+- The recorder is a tested core utility only; no Training Setup UI, dummy behavior, frame-data overlay, hitbox overlay, or Match playback integration is claimed.
+- The Expert preset exists but has not yet been wired to a difficulty-selection screen or validated through AI-vs-AI matchup simulations.
+- Full CMake/CTest and runtime rendering/audio remain blocked until SDL3 is available and the application can be built.

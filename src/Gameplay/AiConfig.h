@@ -88,6 +88,17 @@ inline const Difficulty kHard = Difficulty{
     /*seed*/                     0xB0B5u,
 };
 
+// EXPERT is deliberately capped at a human-readable reaction floor. It is
+// stronger than HARD through consistency/recovery, not frame-zero input reads.
+inline const Difficulty kExpert = Difficulty{
+    /*reaction_delay_ticks*/        14,
+    /*attack_frequency*/            92,
+    /*recovery_priority*/           100,
+    /*defensive_threshold_percent*/ 55,
+    /*jump_aggression*/             65,
+    /*seed*/                        0xE7E27u,
+};
+
 // The bot's three "in range" distance thresholds, in world pixels. These
 // are read from the active hitbox reach (see src/Gameplay/Attack.cpp):
 //   Jab    - body + 50..78 (reach ~ 50 px past own body)
