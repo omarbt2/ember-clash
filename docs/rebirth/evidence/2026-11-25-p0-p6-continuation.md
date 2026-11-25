@@ -101,3 +101,16 @@ Limits:
 - P3 remains open: this validates the current move table but does not add grabs/throws, projectiles/traps, armor/priority/staleness, or complete rollback snapshots.
 - P6 remains open: Expert is selectable through the existing Settings cycle, but the AI still lacks the planned delayed-perception/utility architecture, personality profiles, team/FFA targeting, Training UI/dummy/overlays, and matchup simulation evidence.
 - Full CMake/CTest and runtime validation still require SDL3 and a runnable desktop build.
+
+## Additional continuation — settings safety and regression coverage
+
+- Normalized persisted `ai_difficulty` to the supported identifiers (`easy`, `standard`, `hard`, `expert`). Unknown values now fall back to `standard` during load, so the Settings UI and runtime AI cannot disagree about an unsupported value.
+- Added a settings regression assertion for malformed/unknown AI difficulty.
+- Updated stale AI preset comments to reflect the four currently shipped presets.
+- Verified with `-std=c++20 -Wall -Wextra -Wpedantic -Werror`:
+  - standalone Settings load probe (unknown difficulty fallback and volume clamp): PASS
+  - AI preset test translation unit and executable: PASS
+  - attack-table test translation unit and executable: PASS
+  - documentation checker (58 files): PASS
+  - `git diff --check`: PASS
+- Full SDL3-linked CMake/CTest and interactive gamepad/visual verification remain unverified; this environment cannot fetch SDL3 from GitHub.

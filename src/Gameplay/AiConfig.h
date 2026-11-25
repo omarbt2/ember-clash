@@ -11,9 +11,9 @@
 // here means a designer can rebalance the bot without touching the FSM
 // implementation.
 //
-// The M4 build ships a single "Standard" difficulty and the Match wires
-// P2 to it by default. The struct is copyable so a future difficulty-select
-// menu can hand the controller a different Difficulty each rematch.
+// Four shipped presets are selected through Settings and injected into
+// the CPU controller when a match is created. The struct remains copyable
+// so match setup and headless tests can choose a deterministic tier.
 // -----------------------------------------------------------------------------
 
 namespace ember::ai {
@@ -51,8 +51,7 @@ struct Difficulty {
     std::uint32_t seed = 0xC1A5u;
 };
 
-// One default difficulty table for the M4 build. Future difficulty
-// selections will add entries here.
+// Standard remains the compatibility/default preset.
 inline const Difficulty kStandard = Difficulty{};
 
 // M7-AI: explicit Easy / Hard presets alongside kStandard so the future

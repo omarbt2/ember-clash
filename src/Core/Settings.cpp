@@ -212,6 +212,16 @@ Settings load_settings_from_file(const std::string& path) {
     if (s.music_volume > 100)  s.music_volume = 100;
     if (s.render_scale < 1)    s.render_scale = 1;
     if (s.render_scale > 4)    s.render_scale = 4;
+    // AI difficulty is a stable preset identifier. A hand-edited or
+    // partially corrupted settings file must not leave the menu displaying
+    // an unsupported tier while runtime silently falls back to Standard.
+    const std::string difficulty(s.ai_difficulty.data());
+    if (difficulty != "easy" && difficulty != "standard" &&
+        difficulty != "hard" && difficulty != "expert") {
+        s.ai_difficulty.fill(0);
+        std::memcpy(s.ai_difficulty.data(), "standard", 8);
+    }
+
     // Keep persisted values inside the same representable keycode space as
     // InputManager: plain ASCII and SDL's scancode-masked keycodes. Zero is
     // retained as an intentionally unbound slot; malformed values fall back

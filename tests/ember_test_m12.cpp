@@ -110,6 +110,16 @@ int main() {
         check(std::memcmp(r.ai_difficulty.data(), "hard", 4) == 0,
               "ai_difficulty round-trips");
 
+        // Unknown persisted difficulty must be normalized once at load,
+        // keeping the Settings UI and runtime AI preset in agreement.
+        {
+            std::ofstream malformed(path, std::ios::trunc);
+            malformed << "ai_difficulty=nightmare\n";
+        }
+        const Settings safe = load_settings_from_file(path);
+        check(std::strcmp(safe.ai_difficulty.data(), "standard") == 0,
+              "unknown ai_difficulty falls back to standard");
+
         // Missing key -> default. We don't test "missing key" here
         // (would need a hand-crafted INI), but defaults() should
         // always return a sane value.
