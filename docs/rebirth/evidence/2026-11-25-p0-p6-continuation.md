@@ -1,5 +1,11 @@
 # P0–P6 continuation evidence — 2026-11-25
 
+| Field | Value |
+|---|---|
+| Purpose | Record the actual P0–P6 continuation work and its verification limits. |
+| Status | PARTIALLY VERIFIED - P2 movement slice only; P0 build blocked; P1 and P3–P6 remain open. |
+| Revision date | 2026-11-25 |
+
 ## Scope of this checkpoint
 
 This checkpoint continues from the recovered development line at `549efcc` (which contains the earlier recovery/input commits and the Production Bible). It does not claim P0–P6 complete.
