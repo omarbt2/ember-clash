@@ -11,9 +11,10 @@ namespace ember {
 
 namespace {
 
-// The two live KeyBindings slots. P1 is the human; P2 is wired
-// for the same layout but is currently consumed only by the AI
-// in V1.0, so the remap UI does not expose P2 yet. The storage
+// The two live KeyBindings slots. P1 is the human; P2 is currently
+// used by the AI opponent in the first release, but its full 13-key
+// layout is persisted and exposed in Settings for the future local-2P
+// mode. The storage
 // is a function-local static so its address is stable (the
 // remap UI caches a KeyBindings& on entry and the address
 // must not move while the menu is open).

@@ -70,10 +70,40 @@ int main() {
         }
         check(distinct, "arrows/keypad/shift/ctrl each get their own slot (no aliasing)");
         check(roundtrip, "key_from_index(key_index(k)) == k (remap capture returns the real key)");
+        check(InputManager::is_valid_keycode(SDLK_LEFT) &&
+              InputManager::is_valid_keycode(SDLK_LSHIFT) &&
+              !InputManager::is_valid_keycode(SDLK_UNKNOWN) &&
+              !InputManager::is_valid_keycode(static_cast<SDL_Keycode>(5)) &&
+              !InputManager::is_valid_keycode(static_cast<SDL_Keycode>(127)) &&
+              !InputManager::is_valid_keycode(static_cast<SDL_Keycode>(159)) &&
+              !InputManager::is_valid_keycode(static_cast<SDL_Keycode>(0x7fffffff)),
+              "valid extended keycodes are accepted and unknown/corrupt codes are rejected");
+        check(InputManager::key_index(SDLK_UNKNOWN) == InputManager::kInvalidKeyIndex &&
+              InputManager::key_from_index(InputManager::kInvalidKeyIndex) == 0,
+              "invalid-key sentinel cannot alias a real scancode slot");
+        InputManager menu_keys;
+        menu_keys.set_held_for_test(SDLK_P, true);
+        check(!menu_keys.menu_pause(), "P remains a gameplay key and does not pause");
+        menu_keys.clear_for_test();
+        menu_keys.set_held_for_test(SDLK_ESCAPE, true);
+        check(menu_keys.menu_pause() && menu_keys.menu_cancel(),
+              "Escape pauses a match and remains the menu cancel key");
         InputManager im;
         im.set_held_for_test(SDLK_LEFT, true);
         check(im.held(SDLK_LEFT) && !im.held(SDLK_RIGHT) && !im.held(SDLK_UP) && !im.held(SDLK_KP_1),
               "holding Left does not read as Right/Up/Keypad1");
+
+        // any_held is a level query, not an event-this-frame query.
+        im.clear_for_test();
+        im.set_held_for_test(SDLK_A, true);
+        check(im.any_held(), "any_held is true immediately after a key is pressed");
+        im.begin_frame_for_test();
+        check(im.any_held(), "any_held stays true across frames while a key remains held");
+        im.set_held_for_test(SDLK_D, true);
+        im.set_held_for_test(SDLK_A, false);
+        check(im.any_held(), "releasing one key keeps any_held true while another remains held");
+        im.set_held_for_test(SDLK_D, false);
+        check(!im.any_held(), "any_held becomes false only after every tracked key is released");
     }
 
     // 1) Settings defaults must equal KeyBindings defaults, slot by slot.
@@ -113,6 +143,12 @@ int main() {
               "new-slot bindings round-trip through save/load");
         check(r.p1_bindings == s.p1_bindings && r.p2_bindings == s.p2_bindings,
               "all 26 bindings round-trip exactly");
+        std::ofstream(path, std::ios::trunc)
+            << "p1_special=2147483647\n" << "p2_dodge=-5\n";
+        const Settings sanitized = load_settings_from_file(path);
+        check(sanitized.p1_bindings[8] == d.p1_bindings[8] &&
+              sanitized.p2_bindings[11] == d.p2_bindings[11],
+              "corrupt keycodes restore the affected action defaults");
         std::ofstream(path) << "p1_move_left=97\np1_jab=106\n";   // legacy-style file
         const Settings l = load_settings_from_file(path);
         check(l.p1_bindings[8] == d.p1_bindings[8] && l.p1_bindings[12] == d.p1_bindings[12],

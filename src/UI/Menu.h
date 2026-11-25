@@ -44,6 +44,12 @@ class Audio;
 
 class Menu {
 public:
+    static constexpr int kSettingsBindStartIndex = 11;
+    static constexpr int kSettingsActionsPerPlayer = 13;
+    static constexpr int kSettingsRestoreDefaultsIndex =
+        kSettingsBindStartIndex + 2 * kSettingsActionsPerPlayer;
+    static constexpr int kSettingsBackIndex = kSettingsRestoreDefaultsIndex + 1;
+
     enum class State {
         kTitle,
         kMain,
@@ -53,9 +59,9 @@ public:
         kSettings,
         kControls,
         kQuitConfirm,
-        // M13: rebind a single P1 key. Entered when the user
-        // confirms one of the P1 BIND rows in kSettings; left
-        // when they press a key (commit) or ESC (cancel).
+        // Rebind one action for either player. Entered when the user
+        // confirms a P1/P2 binding row in kSettings; left when a key
+        // is pressed (commit) or ESC (cancel).
         kRemapCapture,
     };
 
@@ -73,7 +79,7 @@ public:
         kRequestQuit,
         kToggleFullscreen,
         kApplyRenderScale,
-        // M13: the P1 remap UI has committed a single key
+        // The P1/P2 remap UI has committed a single key
         // change. The accompanying slot index and keycode are
         // in pending_remap_slot_ / pending_remap_keycode_;
         // App applies the change to Settings and re-flushes.
@@ -105,7 +111,8 @@ public:
     // in place. The menu stores a pointer (not a copy) so changes
     // are immediately observable to the rest of the game; the App
     // is responsible for flushing the file on save.
-    void bind_settings(Settings* s) { settings_ = s; }
+    void bind_settings(Settings* s) { settings_ = s; rebuild_settings_entries(); }
+    void refresh_settings() { rebuild_settings_entries(); }
 
     // Push an external event into the menu state machine. Used
     // by App to inform the menu that a match ended (so the menu
@@ -146,7 +153,8 @@ public:
     // -----------------------------------------------------------------
     void set_state_for_test(State s) { set_state(s); }
     int  selected_index_for_test() const { return selected_index_; }
-    void set_settings_for_test(Settings* s) { settings_ = s; }
+    void set_selected_index_for_test(int index) { selected_index_ = index; }
+    void set_settings_for_test(Settings* s) { settings_ = s; rebuild_settings_entries(); }
 
     // M13: pending remap. The menu fills these when the
     // player commits a key; App reads them on the next
@@ -188,6 +196,7 @@ private:
     // value column always reflects the live settings struct.
     const std::vector<Entry>& entries_for_state(State s) const;
     void rebuild_settings_entries();
+    void rebuild_controls_entries();
 
     // Returns true if `ev` is consumed (only when the menu is
     // actually listening for an external event, e.g. MatchOver).
@@ -238,9 +247,9 @@ private:
     // -----------------------------------------------------------------
     // M13 remap-capture sub-state.
     //
-    // When the user confirms one of the P1 BIND rows in
+    // When the user confirms one of the P1/P2 BIND rows in
     // kSettings, the menu transitions to kRemapCapture and
-    // records which slot (0..6, see KeyBindings::kActionCount)
+    // records which slot (0..12, see KeyBindings::kActionCount)
     // is being edited. The next key-down commits the new
     // keycode; ESC cancels. The commit emits Action::kApplyRemap
     // with the slot + keycode so App can write the change back
@@ -254,6 +263,7 @@ private:
     // -----------------------------------------------------------------
     bool remap_capture_active_{false};
     int  remap_slot_{-1};
+    int  remap_return_index_{kSettingsBindStartIndex};
     // M13.1: 0 = P1, 1 = P2. The remap UI now exposes P2
     // bindings too (P2 is consumed by the AI in V1.0 but the
     // remap state machine is identical, so we keep one piece

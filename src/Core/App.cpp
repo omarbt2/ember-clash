@@ -240,6 +240,10 @@ void App::update(double dt) {
         ? match_->last_hit_position_for_test().valid
         : false;
 
+    // Capture this before the menu consumes Escape/Start: when the user
+    // resumes from a paused screen, the menu may transition back to kPlay
+    // during update(). That same key edge must not immediately pause again.
+    const bool menu_was_playing = menu_ && menu_->state() == Menu::State::kPlay;
     if (menu_) {
         menu_->update(*input_, *gamepad_, *audio_);
     }
@@ -252,11 +256,10 @@ void App::update(double dt) {
         menu_->push_event(Menu::Event::kMatchEnded);
     }
 
-    // The pause toggle. P (keyboard) or gamepad Start pressed
-    // while in Play -> push the paused event. While paused,
-    // the same input resumes (the menu's navigate() handles
-    // the resume confirmation through the pause menu).
-    if (menu_ && menu_->state() == Menu::State::kPlay
+    // The pause toggle only applies to a frame that STARTED in Play.
+    // Escape/Start used to resume from the pause screen is consumed by
+    // the menu and must not immediately open the pause screen again.
+    if (menu_ && menu_was_playing && menu_->state() == Menu::State::kPlay
         && (input_->menu_pause()
             || gamepad_->pressed(SDL_GAMEPAD_BUTTON_START))) {
         audio_->play(SfxId::Pause);
@@ -494,6 +497,11 @@ void App::handle_menu_action() {
         case Menu::Action::kSaveSettings:
             settings_dirty_ = true;
             flush_settings();
+            InputMap::apply_p1_from_ints(
+                settings_.p1_bindings.data(), settings_.p1_bindings.size());
+            InputMap::apply_p2_from_ints(
+                settings_.p2_bindings.data(), settings_.p2_bindings.size());
+            if (menu_) menu_->refresh_settings();
             audio_->apply_settings(settings_);
             // Re-apply render scale (in case the user edited it
             // inline via the settings screen, which mutates the
@@ -520,6 +528,11 @@ void App::handle_menu_action() {
             settings_.reset_to_defaults();
             settings_dirty_ = true;
             flush_settings();
+            InputMap::apply_p1_from_ints(
+                settings_.p1_bindings.data(), settings_.p1_bindings.size());
+            InputMap::apply_p2_from_ints(
+                settings_.p2_bindings.data(), settings_.p2_bindings.size());
+            if (menu_) menu_->refresh_settings();
             audio_->apply_settings(settings_);
             // Re-apply render scale in case the default differs
             // from the live value.
@@ -568,7 +581,8 @@ void App::handle_menu_action() {
             const int player = menu_->pending_remap_player();
             const int slot   = menu_->pending_remap_slot();
             const int kc     = menu_->pending_remap_keycode();
-            if (slot >= 0 && slot < 7 && kc >= 0 && kc <= 511
+            if (slot >= 0 && slot < KeyBindings::kActionCount
+                && InputManager::is_valid_keycode(static_cast<SDL_Keycode>(kc))
                 && (player == 0 || player == 1)) {
                 if (player == 0) {
                     settings_.p1_bindings[static_cast<std::size_t>(slot)] =
@@ -585,6 +599,7 @@ void App::handle_menu_action() {
                 }
                 settings_dirty_ = true;
                 flush_settings();
+                if (menu_) menu_->refresh_settings();
             }
             break;
         }

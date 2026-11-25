@@ -12,20 +12,32 @@ namespace ember {
 
 
 int InputManager::key_index(SDL_Keycode key) {
-    constexpr int kSentinel = kMaxKeys - 1;
     const long long k = static_cast<long long>(key);
-    if (k < 0) return kSentinel;
-    if (k < kPlainKeyLimit) return static_cast<int>(k);
-    if ((k & kScancodeBit) != 0 && (k & ~static_cast<long long>(kScancodeBit)) < kPlainKeyLimit) {
-        return kPlainKeyLimit + static_cast<int>(k & ~static_cast<long long>(kScancodeBit));
+    if (k < kPlainKeyFloor) return kInvalidKeyIndex; // Unknown/control codes are not bindable.
+    if (k < kPlainKeyLimit) {
+        // ASCII DEL and the C1 control block are not printable keys.
+        if (k >= 127 && k < 160) return kInvalidKeyIndex;
+        return static_cast<int>(k);
     }
-    return kSentinel;
+
+    const long long mask = static_cast<long long>(kScancodeBit);
+    if ((k & mask) != 0) {
+        const long long scancode = k & ~mask;
+        if (scancode > 0 && scancode < kScancodeCount) {
+            return kPlainKeyLimit + static_cast<int>(scancode);
+        }
+    }
+    return kInvalidKeyIndex;
 }
 
 SDL_Keycode InputManager::key_from_index(int index) {
-    if (index < 0 || index >= kMaxKeys) return 0;
+    if (index < 0 || index >= kInvalidKeyIndex) return 0;
     if (index < kPlainKeyLimit) return static_cast<SDL_Keycode>(index);
     return static_cast<SDL_Keycode>(kScancodeBit | (index - kPlainKeyLimit));
+}
+
+bool InputManager::is_valid_keycode(SDL_Keycode key) {
+    return key_index(key) != kInvalidKeyIndex;
 }
 
 InputManager::InputManager() {
@@ -35,8 +47,6 @@ InputManager::InputManager() {
 
 void InputManager::update() {
     std::memcpy(previous_, current_, sizeof(current_));
-    any_previous_ = any_current_;
-    any_current_  = false;
     quit_requested_ = false;
 
     SDL_Event event;
@@ -48,17 +58,15 @@ void InputManager::update() {
 
             case SDL_EVENT_KEY_DOWN: {
                 const int idx = key_index(event.key.key);
-                if (event.key.repeat == 0) {
+                if (idx != kInvalidKeyIndex && event.key.repeat == 0) {
                     current_[idx] = true;
                 }
-                any_current_ = true;
                 break;
             }
 
             case SDL_EVENT_KEY_UP: {
                 const int idx = key_index(event.key.key);
-                current_[idx] = false;
-                // any_current_ may still be true from other held keys.
+                if (idx != kInvalidKeyIndex) current_[idx] = false;
                 break;
             }
 
@@ -66,30 +74,28 @@ void InputManager::update() {
                 break;
         }
     }
-
-    // If a key is held going into update() via SDL_PollEvent being starved,
-    // we still want pressed() to fire exactly once.
-    if (!any_previous_ && !any_current_) {
-        // nothing was pressed; previous_ still reflects the prior frame.
-    }
 }
 
 bool InputManager::held(SDL_Keycode key) const {
-    return current_[key_index(key)];
+    const int idx = key_index(key);
+    return idx != kInvalidKeyIndex && current_[idx];
 }
 
 bool InputManager::pressed(SDL_Keycode key) const {
     const int idx = key_index(key);
-    return current_[idx] && !previous_[idx];
+    return idx != kInvalidKeyIndex && current_[idx] && !previous_[idx];
 }
 
 bool InputManager::released(SDL_Keycode key) const {
     const int idx = key_index(key);
-    return !current_[idx] && previous_[idx];
+    return idx != kInvalidKeyIndex && !current_[idx] && previous_[idx];
 }
 
 bool InputManager::any_held() const {
-    return any_current_;
+    for (int i = 0; i < kInvalidKeyIndex; ++i) {
+        if (current_[i]) return true;
+    }
+    return false;
 }
 
 SDL_Keycode InputManager::any_pressed_key() const {
@@ -100,7 +106,7 @@ SDL_Keycode InputManager::any_pressed_key() const {
     // care which one is reported first, only that the press
     // is consumed and the next call returns 0 until another
     // transition happens.
-    for (int i = 0; i < kMaxKeys; ++i) {
+    for (int i = 0; i < kInvalidKeyIndex; ++i) {
         if (current_[i] && !previous_[i]) {
             return key_from_index(i);
         }
@@ -137,7 +143,9 @@ bool InputManager::menu_cancel () const {
     return pressed(SDLK_ESCAPE);
 }
 bool InputManager::menu_pause  () const {
-    return pressed(SDLK_P);
+    // Escape is reserved for pausing during a match and for backing
+    // out of menu screens. P remains available for the P1 Dodge action.
+    return pressed(SDLK_ESCAPE);
 }
 bool InputManager::menu_any_pressed() const {
     return menu_up() || menu_down() || menu_left() || menu_right()

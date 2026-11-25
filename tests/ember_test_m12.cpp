@@ -188,6 +188,26 @@ int main() {
         check(menu.state() == Menu::State::kPlay,
               "kMatchResumed -> kPlay");
 
+        // Keyboard Escape resumes from the paused state exactly once.
+        InputManager keyboard;
+        Gamepad controller;
+        Audio menu_audio;
+        menu.push_event(Menu::Event::kMatchPaused);
+        keyboard.set_held_for_test(SDLK_ESCAPE, true);
+        check(menu.update(keyboard, controller, menu_audio) == Menu::State::kPlay,
+              "Escape resumes from pause menu");
+        check(menu.consume_action() == Menu::Action::kResumeMatch,
+              "Escape resume emits the resume action");
+
+        // Gamepad Start is also a dedicated resume input, regardless of
+        // which pause-menu row happens to be selected.
+        menu.push_event(Menu::Event::kMatchPaused);
+        controller.set_held_for_test(SDL_GAMEPAD_BUTTON_START, true);
+        check(menu.update(keyboard, controller, menu_audio) == Menu::State::kPlay,
+              "Gamepad Start resumes from pause menu");
+        check(menu.consume_action() == Menu::Action::kResumeMatch,
+              "Gamepad Start does not activate the selected pause-menu row");
+
         menu.push_event(Menu::Event::kMatchEnded);
         check(menu.state() == Menu::State::kRematch,
               "kMatchEnded -> kRematch");
@@ -586,28 +606,25 @@ int main() {
             std::remove(path.c_str());
         }
 
-        // 7) Settings parser clamps negative p1_bindings to 0.
-        //    Non-negative values (including SDL_Keycodes in
-        //    the 0x40000000+ range) are kept verbatim. The
-        //    remap UI is the right place to validate against
-        //    the InputManager's 0..511 poll table; a
-        //    corrupt file with a negative number is the only
-        //    thing the parser needs to fix.
+        // 7) Persisted keycodes must be representable by InputManager.
+        //    Unknown/corrupt values are restored per-action to defaults;
+        //    valid plain and scancode-masked keys remain unchanged.
         {
-            Settings s = Settings();
-            s.p1_bindings = {{-1, 999, 700, 5, 4, 3, 2}};
+            Settings s;
+            s.reset_to_defaults();
+            s.p1_bindings = {{-1, 999, 700, SDLK_Q, SDLK_E, SDLK_R, SDLK_T}};
             const std::string path = "ember_test_m12_remap_oor.ini";
             save_settings_to_file(path, s);
             const Settings r = load_settings_from_file(path);
-            check(r.p1_bindings[0] == 0, "p1_bindings negative -> 0");
-            check(r.p1_bindings[1] == 999,
-                  "p1_bindings 999 preserved (non-neg)");
-            check(r.p1_bindings[2] == 700,
-                  "p1_bindings 700 preserved (non-neg)");
-            check(r.p1_bindings[3] == 5, "p1_bindings in range survives");
-            check(r.p1_bindings[4] == 4, "p1_bindings in range survives");
-            check(r.p1_bindings[5] == 3, "p1_bindings in range survives");
-            check(r.p1_bindings[6] == 2, "p1_bindings in range survives");
+            check(r.p1_bindings[0] == 97, "p1 invalid negative key restores A default");
+            check(r.p1_bindings[1] == 100,
+                  "p1 invalid 999 key restores D default");
+            check(r.p1_bindings[2] == 119,
+                  "p1 invalid 700 key restores W default");
+            check(r.p1_bindings[3] == SDLK_Q, "p1 valid Q binding survives");
+            check(r.p1_bindings[4] == SDLK_E, "p1 valid E binding survives");
+            check(r.p1_bindings[5] == SDLK_R, "p1 valid R binding survives");
+            check(r.p1_bindings[6] == SDLK_T, "p1 valid T binding survives");
             std::remove(path.c_str());
         }
 
@@ -714,27 +731,25 @@ int main() {
             std::remove(path.c_str());
         }
 
-        // 6) Settings parser clamps negative p2_bindings to 0.
-        //    Non-negative values (including SDL_Keycodes in
-        //    the 0x40000000+ range) are kept verbatim.
+        // 6) P2 persisted keycodes receive the same corruption checks.
         {
             Settings s3;
             s3.reset_to_defaults();
-            s3.p2_bindings = {{-1, 999, 700, 5, 4, 3, 2}};
+            s3.p2_bindings = {{-1, 999, 700, SDLK_Q, SDLK_E, SDLK_R, SDLK_T}};
             const std::string path =
                 std::string("test_p2_clamp_") +
                 std::to_string(g_total) + ".txt";
             save_settings_to_file(path, s3);
             Settings r = load_settings_from_file(path);
-            check(r.p2_bindings[0] == 0, "p2_bindings negative -> 0");
-            check(r.p2_bindings[1] == 999,
-                  "p2_bindings 999 preserved (non-neg)");
-            check(r.p2_bindings[2] == 700,
-                  "p2_bindings 700 preserved (non-neg)");
-            check(r.p2_bindings[3] == 5, "p2_bindings in range survives");
-            check(r.p2_bindings[4] == 4, "p2_bindings in range survives");
-            check(r.p2_bindings[5] == 3, "p2_bindings in range survives");
-            check(r.p2_bindings[6] == 2, "p2_bindings in range survives");
+            check(r.p2_bindings[0] == 1073741904, "p2 invalid negative key restores LEFT default");
+            check(r.p2_bindings[1] == 1073741903,
+                  "p2 invalid 999 key restores RIGHT default");
+            check(r.p2_bindings[2] == 1073741906,
+                  "p2 invalid 700 key restores UP default");
+            check(r.p2_bindings[3] == SDLK_Q, "p2 valid Q binding survives");
+            check(r.p2_bindings[4] == SDLK_E, "p2 valid E binding survives");
+            check(r.p2_bindings[5] == SDLK_R, "p2 valid R binding survives");
+            check(r.p2_bindings[6] == SDLK_T, "p2 valid T binding survives");
             std::remove(path.c_str());
         }
 
@@ -768,23 +783,40 @@ int main() {
             Settings s;
             s.reset_to_defaults();
             // Tweak P2 so we can see the live read.
-            s.p2_bindings[4] = 1024;  // arbitrary visible value
+            s.p2_bindings[4] = 1024;  // deliberately invalid legacy value displays as unbound
             menu.bind_settings(&s);
             menu.set_state_for_test(Menu::State::kSettings);
             menu.rebuild_settings_entries_for_test();
             // entries_for_state gives us the live list.
             const std::size_t n = menu.entries_for_state_for_test(
                 Menu::State::kSettings).size();
-            // 11 audio/video rows (MASTER VOLUME, MASTER MUTE,
-            // SFX VOLUME, SFX MUTE, MUSIC VOLUME, MUSIC MUTE,
-            // FULLSCREEN, SCREEN SHAKE, COLOR BLIND, AI
-            // DIFFICULTY, RENDER SCALE) + 7 P1 BIND + 7 P2 BIND
-            // + 2 footer (RESTORE DEFAULTS, BACK) = 27.
-            check(n == 27,
-                  "kSettings entries count = 27 (11 AV + 14 BIND + 2 footer)");
+            // 11 audio/video rows + 13 P1 BIND + 13 P2 BIND
+            // + 2 footer rows (RESTORE DEFAULTS, BACK) = 39.
+            check(n == 39,
+                  "kSettings entries count = 39 (11 AV + 26 BIND + 2 footer)");
+            const auto& rows = menu.entries_for_state_for_test(Menu::State::kSettings);
+            check(rows[Menu::kSettingsBindStartIndex + 7].label == "P1 AIM UP",
+                  "settings exposes P1 AIM UP rebind row");
+            check(rows[Menu::kSettingsBindStartIndex + 13 + 12].label == "P2 EMBER SURGE",
+                  "settings exposes P2 EMBER SURGE rebind row");
+            check(Menu::kSettingsRestoreDefaultsIndex == 37 &&
+                  Menu::kSettingsBackIndex == 38,
+                  "settings footer indices follow all 26 bind rows");
 
-            // 9) Sanity: confirm handler for index 24 (the
-            //    last P2 row, NAIR) drops into kRemapCapture
+            // Controls must always mirror the same live settings,
+            // otherwise users would see old key labels after rebinding.
+            s.p1_bindings[0] = SDLK_Q;
+            menu.refresh_settings();
+            const auto& controls = menu.entries_for_state_for_test(Menu::State::kControls);
+            check(controls.size() == 30,
+                  "controls page lists 26 actions and four menu shortcuts");
+            check(controls[0].value == "Q",
+                  "controls page reflects the current P1 binding");
+            check(controls[13 + 4].value == "---",
+                  "invalid/unbound P2 values are displayed as unbound");
+
+            // 9) Sanity: pending remap starts empty; full capture path
+            //    is covered by the Rebirth input regression tests.
             //    with remap_player_ == 1. The handler returns
             //    Action::kNone because the remap is committed
             //    later by kApplyRemap. We drive the menu

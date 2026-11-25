@@ -17,23 +17,26 @@ namespace ember {
 // input layers will plug in here later without disturbing gameplay code.
 class InputManager {
 public:
-    // Slot table layout (1024 entries):
-    //   [0, 512)     plain keycodes (ASCII / Unicode below 512)
-    //   [512, 1024)  scancode-derived keycodes, i.e. SDL's
-    //                (1<<30 | scancode) values for arrows, keypad, Shift,
-    //                Ctrl, function keys... slot = 512 + scancode
-    // Anything else (extended/unknown keycodes) shares the final slot.
+    // Slot table layout:
+    //   [0, 512)       plain keycodes below 512 (ASCII keys)
+    //   [512, 1024)    SDL scancode-masked keycodes (arrows, keypad,
+    //                  modifiers, function keys), slot = 512 + scancode
+    //   [1024]         invalid-key sentinel; never used as a real key.
     // Before this layout every keycode >= 512 collapsed into ONE slot, so
     // e.g. pressing Left also read as Right/Up/Down and Shift aliased with
     // the whole keypad - which made arrow-key local 2P unplayable.
-    static constexpr int kMaxKeys = 1024;
+    static constexpr int kPlainKeyFloor = 32;
     static constexpr int kPlainKeyLimit = 512;
+    static constexpr int kScancodeCount = 512;
+    static constexpr int kInvalidKeyIndex = kPlainKeyLimit + kScancodeCount;
+    static constexpr int kMaxKeys = kInvalidKeyIndex + 1;
     static constexpr int kScancodeBit   = 1 << 30;
 
     // Maps a keycode to its slot, and back. key_from_index() is the exact
     // inverse for every slot that key_index() can produce for a real key.
     static int        key_index(SDL_Keycode key);
     static SDL_Keycode key_from_index(int index);
+    static bool       is_valid_keycode(SDL_Keycode key);
 
     InputManager();
 
@@ -46,8 +49,8 @@ public:
     bool pressed(SDL_Keycode key) const;
     bool released(SDL_Keycode key) const;
 
-    // Returns true while any tracked key is down. Useful for things like
-    // "any input to dismiss a menu" screens.
+    // Returns true while any tracked key is down, including keys held across
+    // frames where SDL emits no new key-down event.
     bool any_held() const;
 
     // Returns the first keycode whose state transitioned from
@@ -71,7 +74,7 @@ public:
     bool menu_right () const;
     bool menu_confirm() const;   // Enter or gamepad A/Start
     bool menu_cancel () const;   // Esc   or gamepad B/Back
-    bool menu_pause  () const;   // P    or gamepad Start (rising edge)
+    bool menu_pause  () const;   // Esc (in match); gamepad Start is merged in App
     // True on the frame ANY menu input fires (edge). Used by the
     // "press any key" prompt.
     bool menu_any_pressed() const;
@@ -89,8 +92,7 @@ public:
     // -----------------------------------------------------------------
     void set_held_for_test(SDL_Keycode key, bool is_down) {
         const int idx = key_index(key);
-        current_[idx] = is_down;
-        any_current_ = any_current_ || is_down;
+        if (idx != kInvalidKeyIndex) current_[idx] = is_down;
     }
     // Mark the current state as the previous frame's state, so the next
     // call to pressed(key) returns true only for keys that are held now
@@ -98,22 +100,17 @@ public:
     // edge semantics without requiring an actual event.
     void begin_frame_for_test() {
         std::memcpy(previous_, current_, sizeof(previous_));
-        any_previous_ = any_current_;
         quit_requested_ = false;
     }
     // Convenience: clear all held keys (used between scenarios).
     void clear_for_test() {
         std::memset(current_,  0, sizeof(current_));
         std::memset(previous_, 0, sizeof(previous_));
-        any_current_  = false;
-        any_previous_ = false;
     }
 
 private:
     bool current_[kMaxKeys]{};
     bool previous_[kMaxKeys]{};
-    bool any_current_{false};
-    bool any_previous_{false};
     bool quit_requested_{false};
 };
 

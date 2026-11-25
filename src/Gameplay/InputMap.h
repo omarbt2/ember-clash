@@ -21,11 +21,10 @@ class InputManager;
 // trivially copyable (POD) so Settings can hold it directly and
 // the remap UI can take a copy on confirm.
 //
-// Defaults match the V1.0 P1 layout (WASD + Space + J/K/L).
-// P2 defaults are intentionally not exposed in V1.0: P2 is the
-// AI opponent in the MVP, so its bindings are wired but not
-// user-editable. They are kept here so a future 2P local mode
-// can rebind P2 without an API change.
+// Defaults are the 13-action Rebirth layout. P1 is the human
+// player and P2 currently drives the AI opponent; both layouts
+// are persisted and editable so local 2P can use the P2 profile
+// when that mode is implemented.
 // ------------------------------------------------------------------
 struct KeyBindings {
     SDL_Keycode move_left{SDLK_A};
@@ -63,8 +62,8 @@ struct KeyBindings {
     }
     bool operator!=(const KeyBindings& o) const { return !(*this == o); }
 
-    // Returns a pointer to the slot for the action `index` (0..6)
-    // in declaration order (0..12), or nullptr if `index` is out of range.
+    // Returns a pointer to the slot for the action `index` (0..12)
+    // in declaration order, or nullptr if `index` is out of range.
     // The remap UI uses this to look up the active slot when the
     // user is editing a row without a switch in user code.
     SDL_Keycode* slot(int index) {
@@ -111,23 +110,19 @@ public:
     };
     static Sample sample(const InputManager& input, int player_index);
 
-    // Active bindings for the two player slots. The default P1
-    // bindings are the original hardcoded WASD/SDLK_SPACE/JKL set;
-    // P2 is unused in V1.0 (P2 is the AI) but the slot exists so
-    // future work can flip P2 to a second human without an API
-    // change. The match / menu / app layer reads/writes these to
-    // drive the remap UI.
+    // Active bindings for the two player slots. P1 is sampled for
+    // the human-controlled fighter; P2's profile is retained for
+    // the AI's configured input profile and future local-2P wiring.
+    // The Settings screen edits both sets through the shared remap UI.
     static KeyBindings& bindings(int player_index);
 
-    // P1-only convenience: returns the P1 bindings reference. The
-    // remap UI in Menu talks to this directly; the underlying
-    // `bindings(0)` is the same storage.
+    // P1 convenience accessor for call sites that only need the
+    // human player's live profile.
     static KeyBindings& p1_bindings() { return bindings(0); }
 
-    // Copies the 7 integer keycodes from a Settings::p1_bindings
-    // buffer (which is a std::array<int32_t, 7>) into the live
-    // P1 KeyBindings. Called by App on init and after every
-    // settings save. The signature uses a raw int32_t pointer +
+    // Copies up to 13 integer keycodes from a Settings binding
+    // buffer into the live P1 KeyBindings. Called by App on init,
+    // remap, defaults restore, and settings save. The signature uses a raw int32_t pointer +
     // count so Settings (Core) does not need to know about
     // KeyBindings (Gameplay) - Core stays a leaf layer.
     static void apply_p1_from_ints(const std::int32_t* keys, std::size_t count);

@@ -65,8 +65,17 @@ The default match is a human player against the computer opponent. Keyboard cont
 | Jab | J |
 | Forward tilt | K |
 | Neutral air | L |
+| Aim up | I |
+| Special | U |
+| Smash modifier | Left Shift |
+| Shield / parry | O |
+| Dodge | P |
+| Ember Surge | Y |
+| Pause | Esc / Gamepad Start |
 | Rematch | R |
 | Quit | Esc |
+
+All 13 fighter actions can be rebound per player in Settings. The P2 arrow-key / numpad profile is configurable, but a selectable local two-player mode is not yet implemented; P2 is still the AI opponent in the current release scope.
 
 ## Tests
 

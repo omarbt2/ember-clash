@@ -40,6 +40,17 @@ bool read_bool(const std::string& line, const std::string& key, bool& out) {
     if (v == "0" || v == "false" || v == "no"  || v == "off") { out = false; return true; }
     return false;
 }
+bool is_supported_keycode(std::int32_t value) {
+    if (value == 0) return true; // Zero is retained as an intentionally unbound slot.
+    if (value >= 32 && value < 127) return true; // Printable ASCII.
+    if (value >= 160 && value < 512) return true; // Printable Latin-1/Unicode range.
+    constexpr std::uint32_t kScancodeBit = 1u << 30;
+    const std::uint32_t raw = static_cast<std::uint32_t>(value);
+    if ((raw & kScancodeBit) == 0) return false;
+    const std::uint32_t scancode = raw & ~kScancodeBit;
+    return scancode > 0 && scancode < 512;
+}
+
 bool read_str(const std::string& line, const std::string& key,
               std::array<char, 16>& out) {
     const std::string prefix = key + "=";
@@ -155,11 +166,9 @@ Settings load_settings_from_file(const std::string& path) {
         else if (read_str (t, "p1_scheme",      s.p1_scheme))      {}
         else if (read_str (t, "p2_scheme",      s.p2_scheme))      {}
         else if (read_str (t, "ai_difficulty",  s.ai_difficulty))  {}
-        // P1 key bindings. Each is a 32-bit integer (the raw
-        // SDL_Keycode value). Out-of-range values are clamped to
-        // 0 (SDLK_UNKNOWN) below so a corrupted file cannot leave
-        // the player with a key outside the InputManager's 0..511
-        // slot table.
+        // P1 key bindings. Each is a raw 32-bit SDL_Keycode value.
+        // Values are validated after parsing; malformed keycodes
+        // fall back to the corresponding default action binding.
         else if (read_int (t, "p1_move_left",   s.p1_bindings[0])) {}
         else if (read_int (t, "p1_move_right",  s.p1_bindings[1])) {}
         else if (read_int (t, "p1_jump",        s.p1_bindings[2])) {}
@@ -203,23 +212,18 @@ Settings load_settings_from_file(const std::string& path) {
     if (s.music_volume > 100)  s.music_volume = 100;
     if (s.render_scale < 1)    s.render_scale = 1;
     if (s.render_scale > 4)    s.render_scale = 4;
-    // P1 / P2 key bindings: the InputManager tracks 512 slots
-    // (0..511) for keyboard poll, but the remap UI stores the
-    // raw SDL_Keycode value (which can be in the 0x40000000
-    // range for SDLK_*_KP / SDLK_LEFT / SDLK_RIGHT etc.).
-    // A negative value is corrupted; we clamp to 0 = SDLK_UNKNOWN
-    // so the slot is silently unbound rather than indexing out
-    // of bounds. The remap UI also rejects negative keycodes at
-    // capture time. Upper bound is INT32_MAX so all valid
-    // SDL_Keycode values pass through.
+    // Keep persisted values inside the same representable keycode space as
+    // InputManager: plain ASCII and SDL's scancode-masked keycodes. Zero is
+    // retained as an intentionally unbound slot; malformed values fall back
+    // to that action's default instead of aliasing the invalid-key sentinel.
+    Settings defaults;
+    defaults.reset_to_defaults();
     for (std::size_t i = 0; i < s.p1_bindings.size(); ++i) {
-        if (s.p1_bindings[i] < 0) {
-            s.p1_bindings[i] = 0;
+        if (!is_supported_keycode(s.p1_bindings[i])) {
+            s.p1_bindings[i] = defaults.p1_bindings[i];
         }
-    }
-    for (std::size_t i = 0; i < s.p2_bindings.size(); ++i) {
-        if (s.p2_bindings[i] < 0) {
-            s.p2_bindings[i] = 0;
+        if (!is_supported_keycode(s.p2_bindings[i])) {
+            s.p2_bindings[i] = defaults.p2_bindings[i];
         }
     }
 

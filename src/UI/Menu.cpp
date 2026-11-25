@@ -7,9 +7,11 @@
 #include "Input/InputManager.h"
 #include "UI/BitmapFont.h"
 
+#include <SDL3/SDL.h>
 #include <SDL3/SDL_keycode.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cstdio>
 #include <cstring>
 #include <string>
@@ -49,6 +51,16 @@ std::string fmt_pct(int v) {
 
 // Format a bool as "ON" / "OFF".
 std::string fmt_onoff(bool v) { return v ? "ON" : "OFF"; }
+
+std::string fmt_key_label(int keycode) {
+    if (!InputManager::is_valid_keycode(static_cast<SDL_Keycode>(keycode))) return "---";
+    const char* raw = SDL_GetKeyName(static_cast<SDL_Keycode>(keycode));
+    if (!raw || !*raw) return "KEY";
+    std::string result(raw);
+    std::transform(result.begin(), result.end(), result.begin(),
+        [](unsigned char c) { return static_cast<char>(std::toupper(c)); });
+    return result;
+}
 
 // Center a string of N characters horizontally on a row at y. The
 // bitmap font is 5 cells per glyph and a 4-wide glyph, so the
@@ -127,27 +139,6 @@ Menu::Menu() {
         mk ("BACK TO TITLE",Action::kReturnToTitle),
     };
 
-    controls_entries_ = {
-        mkv("P1 MOVE LEFT",       "A / LEFT",   Action::kNone),
-        mkv("P1 MOVE RIGHT",      "D / RIGHT",  Action::kNone),
-        mkv("P1 JUMP",            "W / SPACE",  Action::kNone),
-        mkv("P1 FAST FALL",       "S",          Action::kNone),
-        mkv("P1 JAB",             "J",          Action::kNone),
-        mkv("P1 FORWARD TILT",    "K",          Action::kNone),
-        mkv("P1 NEUTRAL AIR",     "L",          Action::kNone),
-        mkv("P2 MOVE LEFT",       "ARROW LEFT", Action::kNone),
-        mkv("P2 MOVE RIGHT",      "ARROW RIGHT",Action::kNone),
-        mkv("P2 JUMP",            "ARROW UP",   Action::kNone),
-        mkv("P2 FAST FALL",       "ARROW DOWN", Action::kNone),
-        mkv("P2 JAB",             "NUMPAD 1",   Action::kNone),
-        mkv("P2 FORWARD TILT",    "NUMPAD 2",   Action::kNone),
-        mkv("P2 NEUTRAL AIR",     "NUMPAD 3",   Action::kNone),
-        mkv("PAUSE",              "P / GAMEPAD START", Action::kNone),
-        mkv("CONFIRM (MENU)",     "ENTER / GAMEPAD A", Action::kNone),
-        mkv("CANCEL (MENU)",      "ESC / GAMEPAD B",   Action::kNone),
-        mkv("BACK TO TITLE",      "BACK (MENU)",  Action::kReturnToTitle),
-    };
-
     rebuild_settings_entries();
 }
 
@@ -195,7 +186,6 @@ void Menu::rebuild_settings_entries() {
         // one of these indices into the remap-capture
         // sub-state. P2 defaults to the arrow-keys / numpad
         // layout, distinct from P1's WASD+JKL.
-        char kbuf[16];
         for (int player = 0; player < 2; ++player) {
             // Take a pointer to the underlying C array. The
             // std::array decay to int* is non-const-only, so
@@ -205,59 +195,16 @@ void Menu::rebuild_settings_entries() {
                 ? settings_->p1_bindings.data()
                 : settings_->p2_bindings.data();
             const char* pfx = (player == 0) ? "P1 " : "P2 ";
-            for (int i = 0; i < 7; ++i) {
-                const char* lbl = "BIND";
-                switch (i) {
-                    case 0: lbl = "MOVE LEFT";   break;
-                    case 1: lbl = "MOVE RIGHT";  break;
-                    case 2: lbl = "JUMP";        break;
-                    case 3: lbl = "FAST FALL";   break;
-                    case 4: lbl = "JAB";         break;
-                    case 5: lbl = "FTILT";       break;
-                    case 6: lbl = "NAIR";        break;
-                }
-                // Compose the full label. We use a small
-                // stack buffer instead of std::string for the
-                // label because Entry stores char[].
-                char full_lbl[24];
-                std::snprintf(full_lbl, sizeof(full_lbl), "%s%s", pfx, lbl);
-                const int kc = slot_array[i];
-                // The label is the action; the value is the current
-                // key (or "---" when SDLK_UNKNOWN). We use a small
-                // inline formatter so we don't pull InputMap into
-                // Menu (Menu is in UI; InputMap is in Gameplay).
-                // The byte buffer is enough for "Keypad 0" + NUL.
-                if (kc <= 0) {
-                    settings_entries_.push_back(mkv(full_lbl, "---", Action::kNone));
-                } else if (kc >= 32 && kc < 127) {
-                    // Printable ASCII = single character label.
-                    kbuf[0] = static_cast<char>(kc);
-                    kbuf[1] = '\0';
-                    settings_entries_.push_back(mkv(full_lbl, kbuf, Action::kNone));
-                } else {
-                    // Named keys: a tiny table covers everything we
-                    // care about. SDL_GetKeyName would be more
-                    // general but pulls SDL into UI for a 7-row
-                    // table; the cost/benefit favours a literal
-                    // table for the keys V1.0 P1 actually binds.
-                    const char* name = "KEY";
-                    switch (kc) {
-                        case 1073741906: name = "UP";    break;  // SDLK_UP
-                        case 1073741905: name = "DOWN";  break;  // SDLK_DOWN
-                        case 1073741904: name = "LEFT";  break;  // SDLK_LEFT
-                        case 1073741903: name = "RIGHT"; break;  // SDLK_RIGHT
-                        case 1073741885: name = "SPACE"; break;  // SDLK_SPACE
-                        case 1073741882: name = "TAB";   break;  // SDLK_TAB
-                        case 1073741893: name = "LSHIFT";break;  // SDLK_LSHIFT
-                        case 1073741894: name = "RSHIFT";break;  // SDLK_RSHIFT
-                        case 1073741898: name = "LCTRL"; break;  // SDLK_LCTRL
-                        case 1073741899: name = "RCTRL"; break;  // SDLK_RCTRL
-                        case 1073741908: name = "BACKSP";break;  // SDLK_BACKSPACE
-                        case 1073741911: name = "ESC";   break;  // SDLK_ESCAPE
-                        case 1073741912: name = "RETURN";break;  // SDLK_RETURN
-                    }
-                    settings_entries_.push_back(mkv(full_lbl, name, Action::kNone));
-                }
+            static constexpr const char* kActionLabels[13] = {
+                "MOVE LEFT", "MOVE RIGHT", "JUMP", "FAST FALL", "JAB",
+                "FORWARD TILT", "NEUTRAL AIR", "AIM UP", "SPECIAL",
+                "SMASH MODIFIER", "SHIELD", "DODGE", "EMBER SURGE"
+            };
+            for (int i = 0; i < kSettingsActionsPerPlayer; ++i) {
+                char full_lbl[32];
+                std::snprintf(full_lbl, sizeof(full_lbl), "%s%s", pfx, kActionLabels[i]);
+                const std::string key_label = fmt_key_label(slot_array[i]);
+                settings_entries_.push_back(mkv(full_lbl, key_label.c_str(), Action::kNone));
             }
         }
         settings_entries_.push_back(mk ("RESTORE DEFAULTS",
@@ -267,6 +214,37 @@ void Menu::rebuild_settings_entries() {
     } else {
         settings_entries_.push_back(mk("(no settings bound)", Action::kNone));
     }
+    rebuild_controls_entries();
+}
+
+void Menu::rebuild_controls_entries() {
+    static constexpr const char* kActionLabels[13] = {
+        "MOVE LEFT", "MOVE RIGHT", "JUMP", "FAST FALL", "JAB",
+        "FORWARD TILT", "NEUTRAL AIR", "AIM UP", "SPECIAL",
+        "SMASH MODIFIER", "SHIELD", "DODGE", "EMBER SURGE"
+    };
+
+    Settings defaults;
+    defaults.reset_to_defaults();
+    const auto& p1 = settings_ ? settings_->p1_bindings : defaults.p1_bindings;
+    const auto& p2 = settings_ ? settings_->p2_bindings : defaults.p2_bindings;
+
+    controls_entries_.clear();
+    controls_entries_.reserve(29);
+    for (int i = 0; i < 13; ++i) {
+        const std::string label = std::string("P1 ") + kActionLabels[i];
+        const std::string key = fmt_key_label(p1[static_cast<std::size_t>(i)]);
+        controls_entries_.push_back(mkv(label.c_str(), key.c_str(), Action::kNone));
+    }
+    for (int i = 0; i < 13; ++i) {
+        const std::string label = std::string("P2 ") + kActionLabels[i];
+        const std::string key = fmt_key_label(p2[static_cast<std::size_t>(i)]);
+        controls_entries_.push_back(mkv(label.c_str(), key.c_str(), Action::kNone));
+    }
+    controls_entries_.push_back(mkv("PAUSE", "ESC / GAMEPAD START", Action::kNone));
+    controls_entries_.push_back(mkv("CONFIRM (MENU)", "ENTER / GAMEPAD A", Action::kNone));
+    controls_entries_.push_back(mkv("CANCEL (MENU)", "ESC / GAMEPAD B", Action::kNone));
+    controls_entries_.push_back(mkv("BACK TO TITLE", "BACK (MENU)", Action::kReturnToTitle));
 }
 
 const std::vector<Menu::Entry>& Menu::entries_for_state(State s) const {
@@ -338,11 +316,10 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
     if (input.menu_cancel() || pad.cancel()) {
         if (state_ == State::kSettings || state_ == State::kControls) {
             // Save settings on the way out of the settings screen.
-            if (state_ == State::kSettings) {
-                pending_action_ = Action::kSaveSettings;
-            }
-            state_ = (state_ == State::kSettings) ? State::kMain : State::kMain;
-            selected_index_ = (state_ == State::kSettings) ? 1 : 2;
+            const bool leaving_settings = state_ == State::kSettings;
+            if (leaving_settings) pending_action_ = Action::kSaveSettings;
+            state_ = State::kMain;
+            selected_index_ = leaving_settings ? 1 : 2;
             audio.play(SfxId::MenuCancel);
             return Action::kNone;
         }
@@ -383,6 +360,18 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
         // the user backed out to the main menu, which made the
         // settings feel broken.
         if (state_ == State::kSettings && settings_) {
+            const int bind_offset = selected_index_ - kSettingsBindStartIndex;
+            if (bind_offset >= 0 &&
+                bind_offset < 2 * kSettingsActionsPerPlayer) {
+                remap_slot_ = bind_offset % kSettingsActionsPerPlayer;
+                remap_player_ = bind_offset / kSettingsActionsPerPlayer;
+                remap_return_index_ = selected_index_;
+                remap_capture_active_ = true;
+                remap_pulse_ticks_ = 0;
+                state_ = State::kRemapCapture;
+                audio.play(SfxId::MenuConfirm);
+                return Action::kNone;
+            }
             switch (selected_index_) {
                 case 0:
                 case 2:
@@ -421,29 +410,8 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     settings_->render_scale = (settings_->render_scale % 4) + 1;
                     break;
                 }
-                case 11: case 12: case 13: case 14:
-                case 15: case 16: case 17:
-                case 18: case 19: case 20: case 21:
-                case 22: case 23: case 24: {
-                    // M13 / M13.1: P1 (indices 11-17) and P2
-                    // (indices 18-24) rebind. The slot index
-                    // into KeyBindings is selected_index_ - 11.
-                    // The player index is 0 for the first 7
-                    // rows, 1 for the second 7. The menu drops
-                    // into the kRemapCapture sub-state and waits
-                    // for the next key-down to commit. The
-                    // action we emit is kNone because the remap
-                    // is committed later (by a kApplyRemap
-                    // action) once a key is captured.
-                    remap_slot_   = selected_index_ - 11;
-                    remap_player_ = (selected_index_ >= 18) ? 1 : 0;
-                    remap_capture_active_ = true;
-                    state_ = State::kRemapCapture;
-                    audio.play(SfxId::MenuConfirm);
-                    return Action::kNone;
-                }
-                case 25: settings_->reset_to_defaults(); break;
-                case 26: {
+                case kSettingsRestoreDefaultsIndex: settings_->reset_to_defaults(); break;
+                case kSettingsBackIndex: {
                     // BACK row
                     pending_action_ = Action::kSaveSettings;
                     state_ = State::kMain;
@@ -452,7 +420,7 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     return Action::kNone;
                 }
             }
-            if (selected_index_ < 25) {
+            if (selected_index_ < kSettingsBackIndex) {
                 audio.play(SfxId::MenuConfirm);
             }
             // P15: live-apply audio settings so a volume change
@@ -653,6 +621,16 @@ Menu::State Menu::update(const InputManager& input, const Gamepad& pad,
     //     stick direction to a fighter action (gamepad binds
     //     are a future feature).
     // -----------------------------------------------------------------
+    // Start is a dedicated pause/resume control, not a generic confirm
+    // button while the pause menu is open (where it could activate the
+    // currently selected Settings/Restart/Quit row by accident).
+    if (state_ == State::kPaused && pad.pressed(SDL_GAMEPAD_BUTTON_START)) {
+        audio.play(SfxId::Pause);
+        handle_event(Event::kMatchResumed);
+        pending_action_ = Action::kResumeMatch;
+        return state_;
+    }
+
     if (state_ == State::kRemapCapture) {
         ++remap_pulse_ticks_;
         if (input.menu_cancel() || pad.cancel()) {
@@ -664,23 +642,26 @@ Menu::State Menu::update(const InputManager& input, const Gamepad& pad,
             remap_slot_ = -1;
             remap_pulse_ticks_ = 0;
             state_ = State::kSettings;
+            rebuild_settings_entries();
             // Restore selection to the original bind row so
             // the cursor doesn't jump.
-            selected_index_ = 11;  // first bind row
+            selected_index_ = remap_return_index_;
             return state_;
         }
         const SDL_Keycode k = input.any_pressed_key();
         if (k != 0) {
-            // Commit. We reject pure-modifier keys (Shift, Ctrl,
-            // Alt) because binding a fighter action to a
-            // modifier would make the modifier unusable for
-            // its real purpose (Shift+letter for uppercase, etc).
-            // Modifiers are SDLK_LSHIFT .. SDLK_RGUI.
-            if (k != SDLK_LSHIFT && k != SDLK_RSHIFT &&
-                k != SDLK_LCTRL && k != SDLK_RCTRL &&
-                k != SDLK_LALT  && k != SDLK_RALT  &&
-                k != SDLK_LGUI  && k != SDLK_RGUI) {
-                if (remap_slot_ >= 0 && remap_slot_ < 7) {
+            // Pure modifiers are rejected for ordinary actions because
+            // they are difficult to use safely as a standalone button.
+            // The SMASH MODIFIER action (slot 9) is the deliberate
+            // exception: Shift is its natural binding and must be
+            // rebindable just like every other action.
+            const bool is_shift = k == SDLK_LSHIFT || k == SDLK_RSHIFT;
+            const bool is_other_modifier =
+                k == SDLK_LCTRL || k == SDLK_RCTRL ||
+                k == SDLK_LALT  || k == SDLK_RALT  ||
+                k == SDLK_LGUI  || k == SDLK_RGUI;
+            if (!is_other_modifier && (!is_shift || remap_slot_ == 9)) {
+                if (remap_slot_ >= 0 && remap_slot_ < kSettingsActionsPerPlayer) {
                     pending_remap_player_  = remap_player_;
                     pending_remap_slot_    = remap_slot_;
                     pending_remap_keycode_ = static_cast<int>(k);
@@ -696,10 +677,10 @@ Menu::State Menu::update(const InputManager& input, const Gamepad& pad,
             remap_player_ = 0;
             remap_pulse_ticks_ = 0;
             state_ = State::kSettings;
-            // The selection will be re-set by App when it
-            // applies the remap. For now, snap to the first
-            // bind row so the player can see the new value.
-            selected_index_ = 11;
+            rebuild_settings_entries();
+            // App will refresh the values again after it has
+            // committed the captured key into Settings.
+            selected_index_ = remap_return_index_;
             return state_;
         }
         return state_;
@@ -808,13 +789,22 @@ void Menu::render_settings(Renderer& r) const {
     draw_text_centered(r, 160, "SETTINGS", kTitleColor);
 
     const auto& entries = settings_entries_;
-    for (std::size_t i = 0; i < entries.size(); ++i) {
-        const int y = kMenuTopY + static_cast<int>(i) * kMenuLineDy;
-        draw_entry(r, y, entries[i],
-                   static_cast<int>(i) == selected_index_,
-                   kSettingValX);
+    constexpr int kVisibleRows = 9;
+    constexpr int kSettingsTopY = 225;
+    constexpr int kSettingsLineDy = 40;
+    const int max_first = std::max(0, static_cast<int>(entries.size()) - kVisibleRows);
+    const int first = std::clamp(selected_index_ - kVisibleRows / 2, 0, max_first);
+    const int last = std::min(static_cast<int>(entries.size()), first + kVisibleRows);
+    for (int i = first; i < last; ++i) {
+        const int y = kSettingsTopY + (i - first) * kSettingsLineDy;
+        draw_entry(r, y, entries[static_cast<std::size_t>(i)],
+                   i == selected_index_, kSettingValX);
     }
-    draw_text_centered(r, kHintY, "LEFT/RIGHT: ADJUST   ENTER: TOGGLE/CYCLE   ESC: BACK",
+    char position[40];
+    std::snprintf(position, sizeof(position), "%d / %zu",
+                  selected_index_ + 1, entries.size());
+    draw_text_centered(r, 190, position, kHintColor);
+    draw_text_centered(r, kHintY, "UP/DOWN: SCROLL   LEFT/RIGHT: ADJUST   ENTER: SELECT   ESC: BACK",
                        kHintColor);
 }
 
@@ -850,7 +840,7 @@ void Menu::render_controls(Renderer& r) const {
                                 static_cast<float>(y + 6), 8.0f, 8.0f},
                                kFocusColor);
         }
-        y += 28;
+        y += 24;
         if (is_meta) {
             y_p1 = y;
             y_p2 = y;
@@ -881,6 +871,12 @@ void Menu::render_remap_capture(Renderer& r) const {
         case 4:  action_name = "JAB";         break;
         case 5:  action_name = "FORWARD TILT";break;
         case 6:  action_name = "NEUTRAL AIR"; break;
+        case 7:  action_name = "AIM UP"; break;
+        case 8:  action_name = "SPECIAL"; break;
+        case 9:  action_name = "SMASH MODIFIER"; break;
+        case 10: action_name = "SHIELD"; break;
+        case 11: action_name = "DODGE"; break;
+        case 12: action_name = "EMBER SURGE"; break;
     }
     const std::string line = std::string(remap_player_ == 0 ? "P1 " : "P2 ") + action_name;
     draw_text_centered(r, 300, line, config::kHudTextColor);
@@ -905,8 +901,6 @@ void Menu::render_quit_confirm(Renderer& r) const {
 
     const char* yes = "YES";
     const char* no  = "CANCEL";
-    const int w_yes = ui::measure_text(yes);
-    const int w_no  = ui::measure_text(no);
     const int x_yes = kScreenW / 2 - 80;
     const int x_no  = kScreenW / 2 + 20;
 
