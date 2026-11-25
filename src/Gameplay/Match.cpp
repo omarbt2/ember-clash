@@ -28,37 +28,51 @@ bool aabb_overlap(const Aabb& a, const Aabb& b) {
         && a.y + a.h > b.y;
 }
 
-// Given an attacker whose active hitbox overlaps a target's hurtbox, compute
-// the per-hit response (knockback velocity + hitstun) and apply it. The
-// caller is responsible for verifying the overlap and the attacker's
-// `attack_has_hit_` flag; this function does not check them.
-//
-// Returns true if the hit actually landed (target wasn't invulnerable), so
-// Match can record a hit-spark at the impact point.
-bool apply_attack(Fighter& attacker, Fighter& target) {
+// Resolve one active swing against one hurtbox. Defence is resolved by the
+// defender (guard/parry/dodge/invulnerability), not bypassed by the match
+// loop. Any non-ignored contact consumes the attack's one-hit budget.
+Fighter::HitOutcome apply_attack(Fighter& attacker, Fighter& target) {
+    if (attacker.attack_has_hit()) return Fighter::HitOutcome::Ignored;
+
     const Attack& atk = get_attack(attacker.current_attack_id());
+    const double damage_scale = attacker.surge_active()
+        ? combat::kSurgeDamageMul : 1.0;
+    const double knockback_scale = attacker.surge_active()
+        ? combat::kSurgeKnockbackMul : 1.0;
+    const int scaled_damage = static_cast<int>(std::lround(atk.damage * damage_scale));
 
-    // Knockback formula per the design brief \u00a713.
-    //     knockback = base * (1 + damage / divisor)
-    const int damage = target.damage_percent();
+    // knockback = base * (1 + target_damage / divisor), then Surge scaling.
     const double kb = static_cast<double>(atk.base_knockback)
-                    * (1.0
-                       + static_cast<double>(damage)
-                         / static_cast<double>(combat::kKnockbackDamageDivisor));
+                    * (1.0 + static_cast<double>(target.damage_percent())
+                         / static_cast<double>(combat::kKnockbackDamageDivisor))
+                    * knockback_scale;
 
-    const double sx = static_cast<double>(atk.knockback_angle_x) * static_cast<double>(attacker.facing());
+    const double sx = static_cast<double>(atk.knockback_angle_x)
+                    * static_cast<double>(attacker.facing());
     const double sy = static_cast<double>(atk.knockback_angle_y);
     const double mag = std::sqrt(sx * sx + sy * sy);
     const double nx  = (mag > 1e-6) ? sx / mag : sx;
     const double ny  = (mag > 1e-6) ? sy / mag : sy;
+    const Vec2 knockback_velocity{nx * kb, ny * kb};
 
-    const Vec2 knockback_velocity{ nx * kb, ny * kb };
+    const Fighter::HitOutcome outcome = target.receive_hit(
+        scaled_damage, knockback_velocity, atk.hitstun_frames, attacker.facing());
+    if (outcome == Fighter::HitOutcome::Ignored) return outcome;
 
-    // Pre-hit record so we can detect whether the target rejected the hit
-    // (invulnerability) before mutating anything.
-    const bool was_invuln = target.is_invulnerable();
-    target.apply_hit(atk.damage, knockback_velocity, atk.hitstun_frames);
-    return !was_invuln && !target.is_dead();
+    // One contact per swing, including a blocked, parried, or dodged swing.
+    // Parry stun resets the attack state, so mark after stun_for() to keep a
+    // stale precomputed hitbox from resolving against another target in the
+    // same match tick (important when the roster grows beyond two fighters).
+    if (outcome == Fighter::HitOutcome::Parried) {
+        attacker.stun_for(combat::kParryAttackerStun);
+        attacker.mark_attack_hit();
+    } else {
+        attacker.mark_attack_hit();
+    }
+    if (outcome == Fighter::HitOutcome::Hit) {
+        attacker.add_surge(scaled_damage * combat::kSurgeGainPerDamageDealt);
+    }
+    return outcome;
 }
 
 // Midpoint of the AABB. Used for hit-spark placement.
@@ -88,7 +102,7 @@ Match::Match()
 Match::~Match() = default;
 
 void Match::reset() {
-    arena_.reset_default();
+    arena_.reset(arena_id_);
     for (int i = 0; i < kFighterCount; ++i) {
         fighters_[i] = std::make_unique<Fighter>(i, arena_);
         respawn_timer_[i] = -1.0;
@@ -221,7 +235,7 @@ void Match::update(const InputManager& input, double dt) {
     //    gets the bookkeeping this frame instead of next.
     for (int i = 0; i < kFighterCount; ++i) {
         Fighter& f = *fighters_[i];
-        if (!f.is_dead() && f.body().y > arena_.death_zone_y()) {
+        if (!f.is_dead() && arena_.is_out_of_bounds(f.body())) {
             f.set_dead_for_test(true);
             if (f.stocks() > 0) {
                 f.set_stocks_for_test(f.stocks() - 1);
@@ -248,9 +262,20 @@ void Match::update(const InputManager& input, double dt) {
                            live_ticks_,
                            motion, combat);
         } else {
-            const InputMap::Sample s = InputMap::sample(input, i);
-            motion = s.motion;
-            combat = s.combat;
+            if (i == 0 && training_recorder_.playing()) {
+                training::RecordedFrame frame{};
+                if (training_recorder_.next(frame)) {
+                    motion = frame.motion;
+                    combat = frame.combat;
+                }
+            } else {
+                const InputMap::Sample s = InputMap::sample(input, i);
+                motion = s.motion;
+                combat = s.combat;
+                if (i == 0 && training_recorder_.recording()) {
+                    training_recorder_.record(motion, combat);
+                }
+            }
         }
         self.update(motion, combat, arena_, dt);
     }
@@ -268,20 +293,17 @@ void Match::update(const InputManager& input, double dt) {
             Fighter& target = *fighters_[d];
             if (target.is_dead()) continue;
             if (aabb_overlap(hb, target.body())) {
-                if (apply_attack(attacker, target)) {
+                const Fighter::HitOutcome outcome = apply_attack(attacker, target);
+                if (outcome != Fighter::HitOutcome::Ignored) {
                     const Vec2 c = aabb_center(hb);
-                    last_hit_      = HitEvent{
-                        static_cast<float>(c.x),
-                        static_cast<float>(c.y),
-                        true
-                    };
+                    last_hit_ = HitEvent{static_cast<float>(c.x),
+                                         static_cast<float>(c.y), true};
                     hit_spark_age_ = combat::kHitSparkFrames;
-                    // M6-C: a successful hit pauses the simulation for a
-                    // few frames so the impact reads. The pause is set
-                    // here (not in apply_attack) because a hit on an
-                    // invulnerable or already-dead target does NOT
-                    // trigger the stop.
-                    hit_stop_frames_ = combat::kHitStopFrames;
+                    // A clean hit gets full hit-stop. Defensive contact still
+                    // gets a spark without freezing the simulation.
+                    if (outcome == Fighter::HitOutcome::Hit) {
+                        hit_stop_frames_ = combat::kHitStopFrames;
+                    }
                 }
             }
         }
@@ -446,7 +468,8 @@ std::uint64_t Match::state_hash() const {
         mix32(static_cast<std::uint32_t>(bits));
     };
 
-    // --- Arena (currently static, but fold for safety) ---
+    // --- Arena data ---
+    mix32(static_cast<std::uint32_t>(arena_.id()));
     for (const Platform& p : arena_.platforms()) {
         mix_f32(p.aabb.x); mix_f32(p.aabb.y);
         mix_f32(p.aabb.w); mix_f32(p.aabb.h);
@@ -480,6 +503,26 @@ std::uint64_t Match::state_hash() const {
         mix32(static_cast<std::uint32_t>(f.attack_frame()));
         mix32(static_cast<std::uint32_t>(f.hitstun_frames()));
         mix32(static_cast<std::uint32_t>(f.invuln_frames()));
+    }
+
+    // --- Training recording / playback state ---
+    mix32(static_cast<std::uint32_t>(training_recorder_.size()));
+    mix32(static_cast<std::uint32_t>(training_recorder_.cursor()));
+    mix32(training_recorder_.recording() ? 1u : 0u);
+    mix32(training_recorder_.playing() ? 1u : 0u);
+    mix32(training_recorder_.overflowed() ? 1u : 0u);
+    for (std::size_t i = 0; i < training_recorder_.size(); ++i) {
+        const training::RecordedFrame* frame = training_recorder_.frame_at(i);
+        if (!frame) continue;
+        const PlayerIntent& m = frame->motion;
+        const CombatIntent& c = frame->combat;
+        mix32(m.move_left ? 1u : 0u); mix32(m.move_right ? 1u : 0u);
+        mix32(m.jump_pressed ? 1u : 0u); mix32(m.fast_fall_held ? 1u : 0u);
+        mix32(m.up_held ? 1u : 0u); mix32(m.run_held ? 1u : 0u);
+        mix32(c.jab_pressed ? 1u : 0u); mix32(c.ftilt_pressed ? 1u : 0u);
+        mix32(c.nair_pressed ? 1u : 0u); mix32(c.special_pressed ? 1u : 0u);
+        mix32(c.smash_held ? 1u : 0u); mix32(c.shield_held ? 1u : 0u);
+        mix32(c.dodge_pressed ? 1u : 0u); mix32(c.surge_pressed ? 1u : 0u);
     }
 
     // --- Match flow ---

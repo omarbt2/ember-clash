@@ -120,6 +120,18 @@ Menu::Menu() {
         mk ("CONTROLS",    Action::kSaveSettings),  // ditto
         mk ("QUIT",        Action::kRequestQuit),
     };
+    mode_entries_ = {
+        mk ("VERSUS CPU",      Action::kStartMatch),
+        mk ("LOCAL 2 PLAYERS", Action::kStartLocalTwoPlayer),
+        mk ("FREE TRAINING",   Action::kStartTraining),
+        mk ("BACK",            Action::kNone),
+    };
+    arena_entries_ = {
+        mk ("TRAINING RING",   Action::kStartMatch),
+        mk ("EMBER FOUNDRY",   Action::kStartMatch),
+        mk ("SKY TEMPLE",      Action::kStartMatch),
+        mk ("BACK",            Action::kNone),
+    };
     // We can't pass kOpenSettings / kOpenControls as Actions
     // because the Action enum is the OUT-pipe from the menu. The
     // trick: the menu's update() recognises the selected entry
@@ -250,6 +262,8 @@ void Menu::rebuild_controls_entries() {
 const std::vector<Menu::Entry>& Menu::entries_for_state(State s) const {
     switch (s) {
         case State::kMain:        return main_entries_;
+        case State::kModeSelect:  return mode_entries_;
+        case State::kArenaSelect: return arena_entries_;
         case State::kPaused:      return paused_entries_;
         case State::kRematch:     return rematch_entries_;
         case State::kSettings:    return settings_entries_;
@@ -314,6 +328,18 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
 
     // Cancel = back / leave the current sub-screen.
     if (input.menu_cancel() || pad.cancel()) {
+        if (state_ == State::kModeSelect) {
+            state_ = State::kMain;
+            selected_index_ = 0;
+            audio.play(SfxId::MenuCancel);
+            return Action::kNone;
+        }
+        if (state_ == State::kArenaSelect) {
+            state_ = State::kModeSelect;
+            selected_index_ = 0;
+            audio.play(SfxId::MenuCancel);
+            return Action::kNone;
+        }
         if (state_ == State::kSettings || state_ == State::kControls) {
             // Save settings on the way out of the settings screen.
             const bool leaving_settings = state_ == State::kSettings;
@@ -448,10 +474,11 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
         // handle those explicitly.
         if (state_ == State::kMain) {
             switch (selected_index_) {
-                case 0: // PLAY
+                case 0: // PLAY -> mode selection
                     audio.play(SfxId::MenuConfirm);
-                    state_ = State::kPlay;
-                    return Action::kStartMatch;
+                    state_ = State::kModeSelect;
+                    selected_index_ = 0;
+                    return Action::kNone;
                 case 1: // SETTINGS
                     audio.play(SfxId::MenuConfirm);
                     state_ = State::kSettings;
@@ -468,6 +495,32 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                     selected_index_ = 0;
                     return Action::kNone;
             }
+        }
+        if (state_ == State::kModeSelect) {
+            if (selected_index_ == 3) {
+                state_ = State::kMain;
+                selected_index_ = 0;
+                audio.play(SfxId::MenuBack);
+                return Action::kNone;
+            }
+            pending_mode_action_ = selected_index_ == 1 ? Action::kStartLocalTwoPlayer
+                : selected_index_ == 2 ? Action::kStartTraining : Action::kStartMatch;
+            state_ = State::kArenaSelect;
+            selected_index_ = 0;
+            audio.play(SfxId::MenuConfirm);
+            return Action::kNone;
+        }
+        if (state_ == State::kArenaSelect) {
+            if (selected_index_ == 3) {
+                state_ = State::kModeSelect;
+                selected_index_ = 0;
+                audio.play(SfxId::MenuBack);
+                return Action::kNone;
+            }
+            selected_arena_index_ = selected_index_;
+            state_ = State::kPlay;
+            audio.play(SfxId::MenuConfirm);
+            return pending_mode_action_;
         }
         if (state_ == State::kPaused) {
             switch (selected_index_) {
@@ -738,6 +791,10 @@ void Menu::render_main(Renderer& r) const {
     r.draw_filled_rect({0, 0, static_cast<float>(kScreenW),
                         static_cast<float>(kScreenH)}, kBgColor);
     draw_text_centered(r, kTitleY, "EMBER CLASH", kTitleColor);
+    if (state_ == State::kModeSelect)
+        draw_text_centered(r, 235, "CHOOSE A MODE", kHintColor);
+    else if (state_ == State::kArenaSelect)
+        draw_text_centered(r, 235, "CHOOSE AN ARENA", kHintColor);
 
     const auto& entries = entries_for_state(state_);
     for (std::size_t i = 0; i < entries.size(); ++i) {
@@ -924,7 +981,9 @@ void Menu::render_quit_confirm(Renderer& r) const {
 void Menu::render(Renderer& r) const {
     switch (state_) {
         case State::kTitle:        render_title(r);       break;
-        case State::kMain:         render_main(r);        break;
+        case State::kMain:
+        case State::kModeSelect:
+        case State::kArenaSelect:  render_main(r);        break;
         case State::kPaused:       render_paused(r);      break;
         case State::kRematch:      render_rematch(r);     break;
         case State::kSettings:     render_settings(r);    break;

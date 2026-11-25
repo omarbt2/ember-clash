@@ -53,6 +53,8 @@ public:
     enum class State {
         kTitle,
         kMain,
+        kModeSelect,
+        kArenaSelect,
         kPlay,
         kPaused,
         kRematch,
@@ -71,6 +73,8 @@ public:
     enum class Action {
         kNone,
         kStartMatch,
+        kStartLocalTwoPlayer,
+        kStartTraining,
         kReturnToTitle,
         kRestartMatch,
         kResumeMatch,
@@ -163,6 +167,7 @@ public:
     int  pending_remap_player()  const { return pending_remap_player_; }
     int  pending_remap_slot()    const { return pending_remap_slot_; }
     int  pending_remap_keycode() const { return pending_remap_keycode_; }
+    int  selected_arena_index() const { return selected_arena_index_; }
 
     // M13.1: test seam. Returns the entry list for a state
     // without driving a frame. Used by the M12/M13.1 P2
@@ -209,6 +214,8 @@ private:
 
     State state_{State::kTitle};
     int   selected_index_{0};
+    int   selected_arena_index_{0};
+    Action pending_mode_action_{Action::kStartMatch};
     Action pending_action_{Action::kNone};
 
     // Settings editing: which field is currently being edited by
@@ -224,6 +231,8 @@ private:
     // The other states' entries are static, so we cache them
     // here to avoid a per-frame allocation.
     std::vector<Entry> main_entries_;
+    std::vector<Entry> mode_entries_;
+    std::vector<Entry> arena_entries_;
     std::vector<Entry> paused_entries_;
     std::vector<Entry> rematch_entries_;
     std::vector<Entry> controls_entries_;

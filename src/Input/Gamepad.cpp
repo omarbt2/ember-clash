@@ -1,6 +1,7 @@
 #include "Input/Gamepad.h"
 
 #include "Core/Logger.h"
+#include "Input/InputManager.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_events.h>
@@ -26,12 +27,12 @@ Gamepad::~Gamepad() {
     SDL_QuitSubSystem(SDL_INIT_GAMEPAD);
 }
 
-void Gamepad::open_at_index(int index) {
+void Gamepad::open_device(std::int32_t device_id) {
     if (gamepad_) close();
-    SDL_Gamepad* pad = SDL_OpenGamepad(index);
+    SDL_Gamepad* pad = SDL_OpenGamepad(static_cast<SDL_JoystickID>(device_id));
     if (!pad) {
-        Logger::warn(std::string{"Gamepad: SDL_OpenGamepad("} 
-                     + std::to_string(index) + ") failed: " + SDL_GetError());
+        Logger::warn(std::string{"Gamepad: SDL_OpenGamepad("}
+                     + std::to_string(device_id) + ") failed: " + SDL_GetError());
         return;
     }
     gamepad_    = pad;
@@ -61,46 +62,40 @@ void Gamepad::close() {
     }
 }
 
-void Gamepad::update() {
-    // Shift current -> previous before we read new state, so the
-    // "pressed" / "released" predicates see a one-frame window.
+void Gamepad::update(const InputManager& input) {
     std::memcpy(previous_, current_, sizeof(previous_));
-    std::memset(current_,  0, sizeof(current_));
+    std::memset(current_, 0, sizeof(current_));
     axis_lx_ = 0;
     axis_ly_ = 0;
 
-    // We do NOT call SDL_PollEvent here - the keyboard InputManager
-    // owns the event queue. We DO process events as they arrive via
-    // the App's event poll loop, but for simplicity (and because the
-    // gamepad only has a handful of inputs) we re-poll button / axis
-    // state directly from the gamepad handle each frame. Hot-plug
-    // events are handled by listening for SDL events below.
-    SDL_Event event;
-    while (SDL_PollEvent(&event)) {
-        switch (event.type) {
-            case SDL_EVENT_GAMEPAD_ADDED: {
-                if (!gamepad_) {
-                    open_at_index(event.gdevice.which);
-                }
-                break;
+    // Process detach events before attach events so a controller replaced in
+    // one poll frame cannot leave the old handle selected.
+    for (int i = 0; i < input.gamepad_removed_count(); ++i) {
+        if (gamepad_ && input.gamepad_removed_id(i) == instance_id_) close();
+    }
+    if (!gamepad_) {
+        for (int i = 0; i < input.gamepad_added_count(); ++i) {
+            open_device(input.gamepad_added_id(i));
+            if (gamepad_) break;
+        }
+    }
+
+    // Also discover controllers that were connected before SDL's first event
+    // poll. SDL_GetGamepads returns device IDs, not transient array positions.
+    if (!gamepad_) {
+        int count = 0;
+        SDL_JoystickID* ids = SDL_GetGamepads(&count);
+        if (ids) {
+            for (int i = 0; i < count && !gamepad_; ++i) {
+                open_device(static_cast<std::int32_t>(ids[i]));
             }
-            case SDL_EVENT_GAMEPAD_REMOVED: {
-                if (gamepad_ && event.gdevice.which == instance_id_) {
-                    close();
-                }
-                break;
-            }
-            default:
-                // Not a gamepad event; ignore.
-                break;
+            SDL_free(ids);
         }
     }
 
     if (!gamepad_) return;
-
     for (int i = 0; i < kMaxButtons; ++i) {
-        const auto btn = static_cast<SDL_GamepadButton>(i);
-        current_[i] = SDL_GetGamepadButton(gamepad_, btn);
+        current_[i] = SDL_GetGamepadButton(gamepad_, static_cast<SDL_GamepadButton>(i));
     }
     axis_lx_ = SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTX);
     axis_ly_ = SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTY);

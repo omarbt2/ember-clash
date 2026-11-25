@@ -11,11 +11,10 @@
 // (the InputMap already has a clear seam where the gamepad sample can
 // be inserted next to the keyboard sample without touching Fighter).
 //
-// The layer is a single class, not a full system, because the project
-// only needs to support ONE gamepad at a time on the desktop build
-// (P1 keyboard / P2 keyboard / P1 gamepad are the three supported
-// configurations). A future M9 (local multiplayer) would lift this
-// to a vector of gamepads.
+// This adapter still exposes ONE primary gamepad for menu navigation and
+// haptics. InputManager now owns SDL's event queue and forwards hot-plug
+// instance IDs here, avoiding the old double-poll bug. P8 still needs a
+// multi-slot device manager before 3-4 simultaneous controllers are supported.
 
 #include <SDL3/SDL_gamepad.h>
 
@@ -23,6 +22,8 @@
 #include <cstring>
 
 namespace ember {
+
+class InputManager;
 
 class Gamepad {
 public:
@@ -32,10 +33,10 @@ public:
     Gamepad(const Gamepad&)            = delete;
     Gamepad& operator=(const Gamepad&) = delete;
 
-    // Polls SDL events and updates internal state. Call this once
-    // per frame from InputManager::update() so the keyboard and
-    // gamepad layers stay in lockstep.
-    void update();
+    // Updates cached device state using the event snapshot produced by the
+    // InputManager (the sole SDL event-queue owner). Also discovers a pad
+    // already attached before the application started.
+    void update(const InputManager& input);
 
     // True if a controller is currently attached and open.
     bool is_attached() const { return gamepad_ != nullptr; }
@@ -144,7 +145,7 @@ private:
     int test_last_rumble_ms_{0};
     int test_stop_call_count_{0};
 
-    void open_at_index(int index);
+    void open_device(std::int32_t device_id);
     void close();
 };
 

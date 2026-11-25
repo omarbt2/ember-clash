@@ -20,12 +20,15 @@ struct Platform {
 class Arena {
 public:
     static constexpr int kMaxPlatforms = 8;
+    enum class Id : int { TrainingRing = 0, EmberFoundry = 1, SkyTemple = 2 };
 
     Arena();
 
-    // Resets the platform list to the default training-stage layout and the
-    // death-zone y. Called once at match start.
-    void reset_default();
+    // Loads one built-in, data-driven arena layout. The geometry is kept
+    // separate from rendering so collision/spawn rules are deterministic.
+    void reset(Id id);
+    void reset_default() { reset(Id::TrainingRing); }
+    Id id() const { return id_; }
 
     std::span<const Platform> platforms() const {
         return std::span<const Platform>(data_.data(),
@@ -45,12 +48,15 @@ public:
     // body and velocity; returns true if the body ended up resting on top of
     // at least one platform (i.e. grounded this frame).
     bool resolve_collision(Aabb& body, Vec2& velocity) const;
+    // Four-sided blast-zone test, evaluated by Match before fighter update.
+    bool is_out_of_bounds(const Aabb& body) const;
 
     // Renders the platforms via the supplied renderer.
     void render(Renderer& renderer) const;
 
 private:
     std::array<Platform, kMaxPlatforms> data_{};
+    Id    id_{Id::TrainingRing};
     int   count_{0};
     float death_zone_y_{0.0f};
     float spawn_y_{0.0f};

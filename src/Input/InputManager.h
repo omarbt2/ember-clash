@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL_keycode.h>
 
+#include <cstdint>
 #include <cstring>
 
 namespace ember {
@@ -12,9 +13,10 @@ namespace ember {
 // `pressed` - transitioned from up to down this frame.
 // `released`- transitioned from down to up this frame.
 //
-// The implementation polls SDL events each frame in InputManager::update(),
-// so caller code only needs to query the predicates. Gamepad and touch
-// input layers will plug in here later without disturbing gameplay code.
+// The implementation owns SDL's event queue and polls once per frame in
+// InputManager::update(). Keyboard predicates and gamepad hot-plug snapshots
+// are published from that same pass so device adapters never drain events
+// out from under one another.
 class InputManager {
 public:
     // Slot table layout:
@@ -31,6 +33,7 @@ public:
     static constexpr int kInvalidKeyIndex = kPlainKeyLimit + kScancodeCount;
     static constexpr int kMaxKeys = kInvalidKeyIndex + 1;
     static constexpr int kScancodeBit   = 1 << 30;
+    static constexpr int kMaxGamepadEventsPerFrame = 16;
 
     // Maps a keycode to its slot, and back. key_from_index() is the exact
     // inverse for every slot that key_index() can produce for a real key.
@@ -44,6 +47,16 @@ public:
     void update();
 
     bool quit_requested() const { return quit_requested_; }
+    // SDL event queue ownership is centralized here. Gamepad consumers read
+    // the device hot-plug events captured during this same poll pass.
+    int gamepad_added_count() const { return gamepad_added_count_; }
+    int gamepad_removed_count() const { return gamepad_removed_count_; }
+    std::int32_t gamepad_added_id(int index) const {
+        return index >= 0 && index < gamepad_added_count_ ? gamepad_added_[index] : 0;
+    }
+    std::int32_t gamepad_removed_id(int index) const {
+        return index >= 0 && index < gamepad_removed_count_ ? gamepad_removed_[index] : 0;
+    }
 
     bool held   (SDL_Keycode key) const;
     bool pressed(SDL_Keycode key) const;
@@ -106,12 +119,25 @@ public:
     void clear_for_test() {
         std::memset(current_,  0, sizeof(current_));
         std::memset(previous_, 0, sizeof(previous_));
+        gamepad_added_count_ = gamepad_removed_count_ = 0;
+    }
+    void add_gamepad_added_for_test(std::int32_t id) {
+        if (gamepad_added_count_ < kMaxGamepadEventsPerFrame)
+            gamepad_added_[gamepad_added_count_++] = id;
+    }
+    void add_gamepad_removed_for_test(std::int32_t id) {
+        if (gamepad_removed_count_ < kMaxGamepadEventsPerFrame)
+            gamepad_removed_[gamepad_removed_count_++] = id;
     }
 
 private:
     bool current_[kMaxKeys]{};
     bool previous_[kMaxKeys]{};
     bool quit_requested_{false};
+    std::int32_t gamepad_added_[kMaxGamepadEventsPerFrame]{};
+    std::int32_t gamepad_removed_[kMaxGamepadEventsPerFrame]{};
+    int gamepad_added_count_{0};
+    int gamepad_removed_count_{0};
 };
 
 } // namespace ember

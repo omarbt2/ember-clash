@@ -2,6 +2,7 @@
 
 #include "Gameplay/CombatConfig.h"
 #include "Gameplay/Fighter.h"
+#include "Gameplay/TrainingRecorder.h"
 #include "World/Arena.h"
 
 #include <array>
@@ -44,11 +45,24 @@ public:
     // For tests and the rematch flow. Resets fighters, the arena, the AI
     // controllers, and the match-flow state.
     void reset();
+    void set_arena(Arena::Id id) { arena_id_ = id; reset(); }
+    Arena::Id arena_id() const { return arena_id_; }
 
     // Per-fighter AI control. Setting a controller for an index makes that
     // fighter AI-driven; the default (no controller) means human-controlled.
     void set_ai(int fighter_index, std::unique_ptr<AiController> controller);
     bool is_ai(int fighter_index) const;
+
+    // P6 training slice: record and replay P1's platform-independent intents.
+    // Playback consumes the same Fighter::update path as live input.
+    void start_training_recording() { training_recorder_.start_recording(); }
+    void stop_training_recording() { training_recorder_.stop_recording(); }
+    void play_training_recording() { training_recorder_.start_playback(); }
+    void clear_training_recording() { training_recorder_.clear(); }
+    bool training_is_recording() const { return training_recorder_.recording(); }
+    bool training_is_playing() const { return training_recorder_.playing(); }
+    bool training_recording_overflowed() const { return training_recorder_.overflowed(); }
+    std::size_t training_recorded_ticks() const { return training_recorder_.size(); }
 
     // True when a hit connected this frame. The HUD reads this through the
     // internal accessor; tests read it via last_hit_position_for_test().
@@ -162,8 +176,10 @@ public:
 
 private:
     Arena arena_;
+    Arena::Id arena_id_{Arena::Id::TrainingRing};
     std::array<std::unique_ptr<Fighter>, kFighterCount> fighters_;
     std::array<std::unique_ptr<AiController>, kFighterCount> ai_;
+    training::Recorder training_recorder_{};
 
     // M5 match-flow state. Per-fighter respawn timers are stored in seconds
     // (count down to 0) so the test harness can read them directly without

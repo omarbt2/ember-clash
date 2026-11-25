@@ -13,50 +13,74 @@ Arena::Arena() {
     reset_default();
 }
 
-void Arena::reset_default() {
-    // Layout matches the spec §10 ASCII diagram: one main floor across the
-    // whole stage and two side platforms elevated above it. Tuned to the
-    // logical render size so the same arena scales with the window.
-    const float W  = static_cast<float>(config::kRenderWidth);
-    const float H  = static_cast<float>(config::kRenderHeight);
-    const float floor_top   = H - 80.0f;          // main platform top y
-    const float side_top    = floor_top - 160.0f; // side platforms 160 px higher
-    const float thick       = 24.0f;              // platform thickness
-    const float side_w      = 240.0f;
-    // Side platforms sit between the two spawn points so a fresh-spawn
-    // jump (body directly above the spawn x) does not bonk the platform
-    // ceiling. The previous 80-px margin placed the left platform at
-    // x=80..320, which fully covered the P1 spawn body (x=220..268),
-    // so a straight-up jump from spawn zeroed the rise velocity at the
-    // platform's underside. 280 px leaves a clean spawn column and
-    // still gives a 240-px-wide side platform to fight on.
-    const float side_margin = 280.0f;
-
+void Arena::reset(Id id) {
+    const float W = static_cast<float>(config::kRenderWidth);
+    const float H = static_cast<float>(config::kRenderHeight);
+    const float floor_top = H - 80.0f;
+    const float thick = 24.0f;
+    id_ = id;
     count_ = 0;
 
     auto push = [&](float x, float y, float w, float h) {
-        data_[count_++] = Platform{Aabb{x, y, w, h}};
+        if (count_ < kMaxPlatforms) {
+            data_[static_cast<std::size_t>(count_++)] = Platform{Aabb{x, y, w, h}};
+        }
     };
 
-    // Main platform: full width.
-    push(0.0f, floor_top, W, H - floor_top);
-    // Left side platform.
-    push(side_margin, side_top, side_w, thick);
-    // Right side platform.
-    push(W - side_margin - side_w, side_top, side_w, thick);
+    switch (id_) {
+        case Id::TrainingRing:
+            // Familiar flat floor with two elevated side platforms.
+            push(0.0f, floor_top, W, H - floor_top);
+            push(280.0f, floor_top - 160.0f, 240.0f, thick);
+            push(W - 520.0f, floor_top - 160.0f, 240.0f, thick);
+            spawn_x_[0] = 220.0f;
+            spawn_x_[1] = W - 284.0f;
+            break;
+        case Id::EmberFoundry:
+            // A narrow main deck with a central furnace bridge and offset
+            // side shelves; the outer gaps create meaningful edge pressure.
+            push(150.0f, floor_top, W - 300.0f, H - floor_top);
+            push(450.0f, floor_top - 190.0f, 380.0f, thick);
+            push(255.0f, floor_top - 95.0f, 190.0f, thick);
+            push(W - 445.0f, floor_top - 95.0f, 190.0f, thick);
+            spawn_x_[0] = 295.0f;
+            spawn_x_[1] = W - 343.0f;
+            break;
+        case Id::SkyTemple:
+            // Three stepped platforms over a raised central sanctuary.
+            push(130.0f, floor_top, W - 260.0f, H - floor_top);
+            push(235.0f, floor_top - 118.0f, 205.0f, thick);
+            push(520.0f, floor_top - 215.0f, 240.0f, thick);
+            push(W - 440.0f, floor_top - 118.0f, 205.0f, thick);
+            spawn_x_[0] = 275.0f;
+            spawn_x_[1] = W - 323.0f;
+            break;
+        default:
+            id_ = Id::TrainingRing;
+            push(0.0f, floor_top, W, H - floor_top);
+            push(280.0f, floor_top - 160.0f, 240.0f, thick);
+            push(W - 520.0f, floor_top - 160.0f, 240.0f, thick);
+            spawn_x_[0] = 220.0f;
+            spawn_x_[1] = W - 284.0f;
+            break;
+    }
 
-    // Death zone sits well below the floor; fighters that fall past it die.
     death_zone_y_ = H + 200.0f;
-
-    // Spawn position: a little above the main platform so the fighter's feet
-    // are flush with the floor on the first frame.
-    spawn_y_   = floor_top;
-    spawn_x_[0] = 220.0f;
-    spawn_x_[1] = W - 220.0f - 64.0f;  // 64 = fighter width
+    spawn_y_ = floor_top;
 }
 
 float Arena::spawn_x(int player_index) const {
     return spawn_x_[(player_index == 0) ? 0 : 1];
+}
+
+bool Arena::is_out_of_bounds(const Aabb& body) const {
+    const float width = static_cast<float>(config::kRenderWidth);
+    constexpr float side_margin = 170.0f;
+    constexpr float top_margin = 180.0f;
+    return body.x + body.w < -side_margin
+        || body.x > width + side_margin
+        || body.y + body.h < -top_margin
+        || body.y > death_zone_y_;
 }
 
 bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
@@ -113,44 +137,44 @@ bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
 }
 
 void Arena::render(Renderer& renderer) const {
-    // M6-A: vertical gradient background (top -> bottom) for soft depth.
-    // The whole stage is one band, so we can pass a single rect spanning
-    // the render width. The death-zone tint below the floor is the same
-    // gradient, so a fighter that falls into it visually warns the player
-    // they are out of bounds.
+    // Procedural stage backdrop. The actual bottom blast plane sits below
+    // the visible viewport, while the side/top margins are intentionally
+    // kept outside the play field for clean KO detection.
     const float W = static_cast<float>(config::kRenderWidth);
     const float H = static_cast<float>(config::kRenderHeight);
-    renderer.draw_vertical_gradient(
-        { 0.0f, 0.0f, W, H },
-        art::kArenaBackgroundTop,
-        art::kArenaBackgroundBottom);
-    // Death-zone band: a thin red strip just below the floor to telegraph
-    // where the kill plane is. M6 will animate the strip later; for now
-    // a static band is enough to communicate the rule.
-    if (death_zone_y_ < H + 32.0f) {
-        renderer.draw_filled_rect(
-            { 0.0f, death_zone_y_ - 6.0f, W, 12.0f },
-            art::kArenaDeathZoneTint);
+    config::Color bg_top = art::kArenaBackgroundTop;
+    config::Color bg_bottom = art::kArenaBackgroundBottom;
+    config::Color platform_top = art::kArenaPlatformTop;
+    config::Color platform_body = art::kArenaPlatformBody;
+    config::Color platform_rim = art::kArenaPlatformRim;
+    if (id_ == Id::EmberFoundry) {
+        bg_top = {62, 26, 29, 255}; bg_bottom = {20, 10, 18, 255};
+        platform_top = {235, 125, 60, 255}; platform_body = {110, 48, 40, 255};
+        platform_rim = {255, 190, 95, 255};
+    } else if (id_ == Id::SkyTemple) {
+        bg_top = {26, 62, 82, 255}; bg_bottom = {8, 20, 42, 255};
+        platform_top = {140, 205, 215, 255}; platform_body = {55, 105, 130, 255};
+        platform_rim = {225, 235, 190, 255};
     }
-
+    renderer.draw_vertical_gradient({0.0f, 0.0f, W, H}, bg_top, bg_bottom);
     for (const Platform& p : platforms()) {
         // Body: one solid color.
         renderer.draw_filled_rect(
             {p.aabb.x, p.aabb.y, p.aabb.w, p.aabb.h},
-            art::kArenaPlatformBody);
+            platform_body);
         // Top rim: a thin highlight strip on the top edge of the
         // platform so it reads as a 3D surface and not a flat color.
         const float rim = std::min<float>(4.0f, p.aabb.h);
         renderer.draw_filled_rect(
             {p.aabb.x, p.aabb.y, p.aabb.w, rim},
-            art::kArenaPlatformTop);
+            platform_top);
         // Outline: bright yellow on the main floor only, so the side
         // platforms stay quieter than the center stage.
         const bool is_main_floor = (p.aabb.w >= W - 1.0f);
         if (is_main_floor) {
             renderer.draw_rect_outline(
                 {p.aabb.x, p.aabb.y, p.aabb.w, p.aabb.h},
-                art::kArenaPlatformRim);
+                platform_rim);
         }
     }
 }

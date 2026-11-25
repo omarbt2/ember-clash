@@ -48,6 +48,8 @@ InputManager::InputManager() {
 void InputManager::update() {
     std::memcpy(previous_, current_, sizeof(current_));
     quit_requested_ = false;
+    gamepad_added_count_ = 0;
+    gamepad_removed_count_ = 0;
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
@@ -69,6 +71,20 @@ void InputManager::update() {
                 if (idx != kInvalidKeyIndex) current_[idx] = false;
                 break;
             }
+
+            case SDL_EVENT_GAMEPAD_ADDED:
+                if (gamepad_added_count_ < kMaxGamepadEventsPerFrame) {
+                    gamepad_added_[gamepad_added_count_++] =
+                        static_cast<std::int32_t>(event.gdevice.which);
+                }
+                break;
+
+            case SDL_EVENT_GAMEPAD_REMOVED:
+                if (gamepad_removed_count_ < kMaxGamepadEventsPerFrame) {
+                    gamepad_removed_[gamepad_removed_count_++] =
+                        static_cast<std::int32_t>(event.gdevice.which);
+                }
+                break;
 
             default:
                 break;

@@ -69,6 +69,9 @@ public:
     bool recording() const { return recording_; }
     bool playing() const { return playing_; }
     bool overflowed() const { return overflowed_; }
+    const RecordedFrame* frame_at(std::size_t index) const {
+        return index < count_ ? &frames_[index] : nullptr;
+    }
 
 private:
     std::array<RecordedFrame, kMaxRecordedTicks> frames_{};

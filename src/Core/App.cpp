@@ -6,6 +6,7 @@
 #include "Core/Time.h"
 #include "Gameplay/AiConfig.h"
 #include "Gameplay/AiController.h"
+#include "World/Arena.h"
 #include "Gameplay/ArtConfig.h"
 #include "Gameplay/InputMap.h"
 #include "Gameplay/Match.h"
@@ -16,12 +17,14 @@
 #include "Input/Haptics.h"
 #include "Input/InputManager.h"
 #include "UI/Menu.h"
+#include "UI/BitmapFont.h"
 
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_keycode.h>
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <string>
 
 namespace ember {
@@ -222,7 +225,7 @@ void App::request_exit() {
 
 void App::handle_events() {
     input_->update();
-    gamepad_->update();
+    gamepad_->update(*input_);
 }
 
 void App::update(double dt) {
@@ -263,6 +266,24 @@ void App::update(double dt) {
     }
 
     handle_menu_action();
+
+    // Free Training transport controls: F5 starts a fresh capture, F6
+    // stops-and-replays the capture (or restarts an existing replay), and
+    // F7 clears it. These controls are deliberately active only in the
+    // dedicated no-CPU mode so they cannot steal ordinary gameplay keys.
+    if (free_training_ && match_ && menu_
+        && menu_->state() == Menu::State::kPlay) {
+        if (input_->pressed(SDLK_F5)) {
+            match_->start_training_recording();
+        }
+        if (input_->pressed(SDLK_F6)) {
+            if (match_->training_is_recording()) match_->stop_training_recording();
+            match_->play_training_recording();
+        }
+        if (input_->pressed(SDLK_F7)) {
+            match_->clear_training_recording();
+        }
+    }
 
     // Tick the match ONLY when the menu is not blocking the
     // simulation. The pause / rematch / settings screens all
@@ -453,13 +474,25 @@ void App::render() {
         menu_->render(*renderer_);
     } else if (match_) {
         match_->render(*renderer_);
-        // P17: in kPlay the HUD inside Match::render was drawn
-        // at the match-zoom scale, which is fine for the
-        // fighter cards/damage floats (they should grow with
-        // the action) but anything else screen-space would
-        // need a reset here. Currently nothing else is drawn
-        // after the match in kPlay, so this is a no-op kept
-        // for symmetry with the menu branch.
+        if (free_training_) {
+            char status[96]{};
+            const char* state = match_->training_is_recording() ? "REC"
+                : match_->training_is_playing() ? "PLAYBACK" : "READY";
+            std::snprintf(status, sizeof(status),
+                "TRAINING %s  %zu TICKS  F5 REC  F6 REPLAY  F7 CLEAR",
+                state, match_->training_recorded_ticks());
+            const float shake_x = settings_.screen_shake
+                ? match_->ko_shake_offset_x() : 0.0f;
+            const float shake_y = settings_.screen_shake
+                ? match_->ko_shake_offset_y() : 0.0f;
+            renderer_->set_view_offset(0.0f, 0.0f);
+            renderer_->set_render_scale(static_cast<float>(settings_.render_scale));
+            ui::draw_text(*renderer_, 18, 18, status,
+                          config::Color{255, 224, 128, 255});
+            renderer_->set_view_offset(static_cast<float>(camera_x_) + shake_x,
+                                       static_cast<float>(camera_y_) + shake_y);
+            renderer_->set_render_scale(static_cast<float>(settings_.render_scale) * 1.3f);
+        }
     }
 
     // P17: always restore the user's render_scale before
@@ -478,6 +511,18 @@ void App::handle_menu_action() {
 
     switch (a) {
         case Menu::Action::kStartMatch:
+            local_two_player_ = false;
+            free_training_ = false;
+            start_match();
+            break;
+        case Menu::Action::kStartLocalTwoPlayer:
+            local_two_player_ = true;
+            free_training_ = false;
+            start_match();
+            break;
+        case Menu::Action::kStartTraining:
+            local_two_player_ = false;
+            free_training_ = true;
             start_match();
             break;
         case Menu::Action::kReturnToTitle:
@@ -608,7 +653,17 @@ void App::handle_menu_action() {
 }
 
 void App::start_match() {
-    if (match_) match_->reset();
+    if (match_) {
+        const int arena_index = menu_ ? menu_->selected_arena_index() : 0;
+        const auto arena_id = static_cast<Arena::Id>(arena_index);
+        match_->set_arena(arena_id);
+        if (local_two_player_ || free_training_) {
+            match_->set_ai(1, nullptr);
+        } else {
+            const std::string diff(settings_.ai_difficulty.data());
+            match_->set_ai(1, std::make_unique<AiController>(ai::from_name(diff)));
+        }
+    }
     if (menu_)  menu_->push_event(Menu::Event::kMatchStarted);
     audio_->play(SfxId::MatchStart);
 }

@@ -83,6 +83,8 @@ private:
 
     Settings                      settings_{};
     bool                          settings_dirty_{false};
+    bool                          local_two_player_{false};
+    bool                          free_training_{false};
     double                        last_settings_flush_{0.0};
 
     bool                          sdl_initialized_{false};

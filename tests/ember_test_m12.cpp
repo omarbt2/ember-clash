@@ -218,6 +218,45 @@ int main() {
         check(menu.consume_action() == Menu::Action::kResumeMatch,
               "Gamepad Start does not activate the selected pause-menu row");
 
+        const auto& mode_entries = menu.entries_for_state_for_test(Menu::State::kModeSelect);
+        const auto& arena_entries = menu.entries_for_state_for_test(Menu::State::kArenaSelect);
+        check(mode_entries.size() == 4, "mode select exposes CPU, local 2P, training and back");
+        check(mode_entries[1].label == "LOCAL 2 PLAYERS", "local two-player option is labelled");
+        check(arena_entries.size() == 4, "arena select exposes three stages and back");
+        check(arena_entries[2].label == "SKY TEMPLE", "third arena is selectable by name");
+
+        // Exercise the new front-end path end-to-end: PLAY -> mode -> arena ->
+        // emitted mode action, including the local-two-player selection.
+        {
+            Menu flow;
+            InputManager keys;
+            Gamepad pad;
+            Audio flow_audio;
+            flow.set_state_for_test(Menu::State::kMain);
+            keys.set_held_for_test(SDLK_RETURN, true);
+            check(flow.update(keys, pad, flow_audio) == Menu::State::kModeSelect,
+                  "PLAY enters mode selection");
+            keys.clear_for_test();
+            keys.set_held_for_test(SDLK_DOWN, true);
+            check(flow.update(keys, pad, flow_audio) == Menu::State::kModeSelect,
+                  "mode list navigates to local 2P");
+            keys.clear_for_test();
+            keys.set_held_for_test(SDLK_RETURN, true);
+            check(flow.update(keys, pad, flow_audio) == Menu::State::kArenaSelect,
+                  "confirm mode enters arena selection");
+            keys.clear_for_test();
+            keys.set_held_for_test(SDLK_DOWN, true);
+            flow.update(keys, pad, flow_audio);
+            keys.clear_for_test();
+            keys.set_held_for_test(SDLK_RETURN, true);
+            check(flow.update(keys, pad, flow_audio) == Menu::State::kPlay,
+                  "confirm arena starts selected mode");
+            check(flow.consume_action() == Menu::Action::kStartLocalTwoPlayer,
+                  "local 2P emits distinct start action");
+            check(flow.selected_arena_index() == 1,
+                  "selected arena index survives mode transition");
+        }
+
         menu.push_event(Menu::Event::kMatchEnded);
         check(menu.state() == Menu::State::kRematch,
               "kMatchEnded -> kRematch");
