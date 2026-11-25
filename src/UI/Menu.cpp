@@ -392,12 +392,13 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
                 case 7: settings_->screen_shake = !settings_->screen_shake; break;
                 case 8: settings_->color_blind_palette = !settings_->color_blind_palette; break;
                 case 9: {
-                    // Cycle AI difficulty: easy -> standard -> hard -> easy.
+                    // Cycle all shipped CPU tiers in ascending challenge.
                     const std::string cur = std::string(settings_->ai_difficulty.data());
                     std::string next;
-                    if (cur == "easy")      next = "standard";
-                    else if (cur == "hard") next = "easy";
-                    else                    next = "hard";
+                    if      (cur == "easy")     next = "standard";
+                    else if (cur == "standard") next = "hard";
+                    else if (cur == "hard")     next = "expert";
+                    else                         next = "easy";
                     std::memset(settings_->ai_difficulty.data(), 0,
                                 settings_->ai_difficulty.size());
                     std::memcpy(settings_->ai_difficulty.data(), next.data(),

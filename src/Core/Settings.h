@@ -63,8 +63,8 @@ struct Settings {
     std::array<char, 16> p1_scheme{"keyboard"};
     std::array<char, 16> p2_scheme{"keyboard"};
 
-    // AI difficulty preset name: "easy" / "standard" / "hard".
-    // Matched against ai::kEasy / ai::kStandard / ai::kHard in AiConfig.h.
+    // AI difficulty preset name: "easy" / "standard" / "hard" / "expert".
+    // Matched against the presets in Gameplay/AiConfig.h.
     std::array<char, 16> ai_difficulty{"standard"};
 
     // P1 key bindings. Stored as raw 32-bit integers (SDL_Keycode

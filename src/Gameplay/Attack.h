@@ -84,6 +84,21 @@ inline int attack_total_frames(const Attack& a) {
     return a.startup_frames + a.active_frames + a.recovery_frames;
 }
 
+// Structural validation for data-driven move tables. Keep this independent
+// of SDL and rendering so every move can be checked in a headless test.
+inline bool attack_is_well_formed(const Attack& a) {
+    if (a.startup_frames < 0 || a.active_frames < 0 || a.recovery_frames < 0)
+        return false;
+    if (a.requires_ground && a.requires_air) return false;
+    if (a.damage < 0 || a.base_knockback < 0 || a.hitstun_frames < 0)
+        return false;
+    if (a.hitbox.w < 0.0f || a.hitbox.h < 0.0f) return false;
+    if (a.active_frames > 0 && (a.hitbox.w <= 0.0f || a.hitbox.h <= 0.0f))
+        return false;
+    if (a.once_per_airtime && a.requires_ground) return false;
+    return true;
+}
+
 // True iff frame_index (0-based within the swing) falls inside the active
 // window. Used by Match to decide whether to test for hitbox intersections.
 inline bool attack_frame_is_active(const Attack& a, int frame_index) {

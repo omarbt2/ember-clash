@@ -126,11 +126,7 @@ bool App::initialize() {
     // defaults to "standard" on first launch).
     {
         const std::string diff(settings_.ai_difficulty.data());
-        ai::Difficulty bot{};
-        if      (diff == "easy") bot = ai::kEasy;
-        else if (diff == "hard") bot = ai::kHard;
-        else                     bot = ai::kStandard;
-        match_->set_ai(1, std::make_unique<AiController>(bot));
+        match_->set_ai(1, std::make_unique<AiController>(ai::from_name(diff)));
     }
 
     Logger::info("Initialization complete.");

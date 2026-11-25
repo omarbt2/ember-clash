@@ -80,3 +80,24 @@ Limits:
 - The recorder is a tested core utility only; no Training Setup UI, dummy behavior, frame-data overlay, hitbox overlay, or Match playback integration is claimed.
 - The Expert preset exists but has not yet been wired to a difficulty-selection screen or validated through AI-vs-AI matchup simulations.
 - Full CMake/CTest and runtime rendering/audio remain blocked until SDL3 is available and the application can be built.
+
+## Additional continuation slice — P3 move-table validation and P6 difficulty wiring
+
+Implemented:
+- Added a device/render-independent structural validator for attack definitions (`attack_is_well_formed`).
+- Added a table-wide regression test covering every `AttackId` from Jab through Ground Slam: valid metadata, startup/active/recovery boundaries, invalid IDs, and malformed definitions.
+- Centralized difficulty-name resolution in `ai::from_name`, with safe Standard fallback for unknown persisted values.
+- Wired the Expert preset into application startup and the Settings difficulty cycle (`Easy → Standard → Hard → Expert → Easy`).
+
+Verification:
+- `ember_test_attack_table`: compiled with `-std=c++20 -Wall -Wextra -Werror` and passed.
+- `ember_test_ai_presets`: compiled with `-std=c++20 -Wall -Wextra -Werror` and passed, including name mapping/fallback.
+- `ember_test_training_recorder`: compiled with `-std=c++20 -Wall -Wextra -Werror` and passed.
+- `ember_test_rebirth_motion`: compiled with `-std=c++20 -Wall -Wextra -Werror` and passed.
+- Production Bible consistency checker: PASS (58 Markdown files).
+- `git diff --check`: PASS.
+
+Limits:
+- P3 remains open: this validates the current move table but does not add grabs/throws, projectiles/traps, armor/priority/staleness, or complete rollback snapshots.
+- P6 remains open: Expert is selectable through the existing Settings cycle, but the AI still lacks the planned delayed-perception/utility architecture, personality profiles, team/FFA targeting, Training UI/dummy/overlays, and matchup simulation evidence.
+- Full CMake/CTest and runtime validation still require SDL3 and a runnable desktop build.

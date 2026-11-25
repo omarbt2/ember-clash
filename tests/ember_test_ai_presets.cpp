@@ -13,6 +13,11 @@ int main() {
     assert(kStandard.reaction_delay_ticks > kHard.reaction_delay_ticks);
     assert(kHard.reaction_delay_ticks > kExpert.reaction_delay_ticks);
     assert(kExpert.recovery_priority == 100);
+    assert(&from_name("easy") == &kEasy);
+    assert(&from_name("standard") == &kStandard);
+    assert(&from_name("hard") == &kHard);
+    assert(&from_name("expert") == &kExpert);
+    assert(&from_name("unknown") == &kStandard);
     assert(kEasy.seed != kStandard.seed && kStandard.seed != kHard.seed
            && kHard.seed != kExpert.seed);
     return 0;

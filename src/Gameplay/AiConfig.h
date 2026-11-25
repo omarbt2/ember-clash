@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <string_view>
 
 // -----------------------------------------------------------------------------
 // AI opponent tuning constants.
@@ -98,6 +99,15 @@ inline const Difficulty kExpert = Difficulty{
     /*jump_aggression*/             65,
     /*seed*/                        0xE7E27u,
 };
+
+// Stable settings-to-runtime mapping shared by startup and tests. Unknown or
+// missing values safely fall back to Standard.
+inline const Difficulty& from_name(std::string_view name) {
+    if (name == "easy") return kEasy;
+    if (name == "hard") return kHard;
+    if (name == "expert") return kExpert;
+    return kStandard;
+}
 
 // The bot's three "in range" distance thresholds, in world pixels. These
 // are read from the active hitbox reach (see src/Gameplay/Attack.cpp):
