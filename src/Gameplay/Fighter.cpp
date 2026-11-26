@@ -28,7 +28,6 @@ Vec2 apply_gravity_only(Vec2 v, bool fast_fall_held) {
 
 Fighter::Fighter(int player_index, const Arena& arena)
     : player_index_(player_index),
-      color_(player_index == 0 ? config::kFighterP1 : config::kFighterP2),
       sprite_(std::make_unique<Sprite>(Sprite::build_animation_strip(
           art::palette_for(player_index, art::color_blind_enabled())))) {
     respawn(arena);
@@ -70,17 +69,10 @@ void Fighter::respawn(const Arena& arena) {
     if (sprite_) sprite_->set_current_frame(anim_driver_.global_frame());
 }
 
-// Called by Match immediately after a respawn to grant the post-respawn
-// invulnerability window. In M5 the duration is in seconds; we convert to
-// frames at 60Hz here so the rest of Fighter can stay in fixed-step units.
-void Fighter::set_respawn_invuln_seconds(double seconds) {
-    if (seconds <= 0.0) {
-        invuln_frames_ = 0;
-        return;
-    }
-    // 60Hz fixed step; rounded up so even a 0.1s window is at least 1 frame.
-    const int frames = static_cast<int>(seconds * 60.0 + 0.5);
-    invuln_frames_ = frames;
+// Called by Match immediately after a respawn. Durations are already expressed
+// in fixed simulation ticks, so no seconds-to-frames conversion is required.
+void Fighter::set_respawn_invuln_ticks(int ticks) {
+    invuln_frames_ = ticks > 0 ? ticks : 0;
 }
 
 // Used by Match::reset() to wipe a rematch's per-fighter state back to a
@@ -233,8 +225,7 @@ void Fighter::advance_attack() {
 
 void Fighter::update(const PlayerIntent& motion_intent,
                      const CombatIntent& combat_intent,
-                     const Arena& arena,
-                     double /*dt*/) {
+                     const Arena& arena) {
     if (dead_) {
         return;
     }
@@ -321,7 +312,7 @@ void Fighter::update(const PlayerIntent& motion_intent,
     // --- Motion ------------------------------------------------------------
     if (state_ == State::Idle) {
         const MotionState in{velocity_, grounded_, jumps_remaining_, jump_buffer_ticks_, coyote_ticks_};
-        const MotionResult out = step_motion(in, motion_intent, /*dt*/ 1.0 / 60.0);
+        const MotionResult out = step_motion(in, motion_intent);
         velocity_        = out.velocity;
         jumps_remaining_ = out.jumps_remaining;
         jump_buffer_ticks_ = out.jump_buffer_ticks;
@@ -342,12 +333,10 @@ void Fighter::update(const PlayerIntent& motion_intent,
         velocity_ = apply_gravity_only(velocity_, motion_intent.fast_fall_held);
     }
 
-    // --- Integrate position ------------------------------------------------
-    body_.x += static_cast<float>(velocity_.x);
-    body_.y += static_cast<float>(velocity_.y);
-
-    // --- Resolve arena collision -------------------------------------------
-    grounded_ = arena.resolve_collision(body_, velocity_);
+    // --- Integrate position + resolve collision ----------------------------
+    // High-speed knockback is advanced in bounded substeps so a fighter
+    // cannot tunnel through a platform in one large per-tick displacement.
+    grounded_ = arena.move_and_resolve(body_, velocity_);
     if (grounded_) { up_special_used_ = false; air_dodge_used_ = false; jumps_remaining_ = 2; }
     // M5 note: the death-zone check used to live here, but it needed to
     // happen BEFORE Fighter::update so Match could still decrement

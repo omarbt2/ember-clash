@@ -4,14 +4,10 @@
 
 namespace ember {
 
-// Fixed tick rate the per-tick tuning constants assume. Per spec §9, all
-// physics values are expressed in px/frame at 60 Hz. We don't currently
-// integrate a variable-dt path in M2; the per-tick constants are used as-is
-// and the caller is expected to invoke step_motion once per render frame.
-// dt is accepted so the signature is stable for a future fixed-timestep loop.
-MotionResult step_motion(const MotionState& current, const PlayerIntent& intent, double dt,
+// All motion constants are expressed per 60 Hz simulation tick. The caller
+// must invoke this exactly once for each fixed simulation tick.
+MotionResult step_motion(const MotionState& current, const PlayerIntent& intent,
                         MotionTuning tuning) {
-    (void)dt; // The caller advances this function exactly once per 60 Hz simulation tick.
     MotionResult next;
     next.velocity = current.velocity;
     next.grounded = current.grounded;

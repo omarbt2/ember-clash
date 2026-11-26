@@ -21,7 +21,7 @@ void prepare_two_humans(Match& match, InputManager& input) {
 }
 
 void tick(Match& match, InputManager& input) {
-    match.update(input, 1.0 / 60.0);
+    match.update(input);
     input.begin_frame_for_test();
 }
 }

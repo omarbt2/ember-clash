@@ -5,9 +5,6 @@
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_events.h>
 
-#include <algorithm>
-#include <cstring>
-
 namespace ember {
 
 
@@ -40,13 +37,9 @@ bool InputManager::is_valid_keycode(SDL_Keycode key) {
     return key_index(key) != kInvalidKeyIndex;
 }
 
-InputManager::InputManager() {
-    std::memset(current_,  0, sizeof(current_));
-    std::memset(previous_, 0, sizeof(previous_));
-}
+InputManager::InputManager() = default;
 
 void InputManager::update() {
-    std::memcpy(previous_, current_, sizeof(current_));
     quit_requested_ = false;
     gamepad_added_count_ = 0;
     gamepad_removed_count_ = 0;
@@ -61,14 +54,14 @@ void InputManager::update() {
             case SDL_EVENT_KEY_DOWN: {
                 const int idx = key_index(event.key.key);
                 if (idx != kInvalidKeyIndex && event.key.repeat == 0) {
-                    current_[idx] = true;
+                    current_[idx].poll(true);
                 }
                 break;
             }
 
             case SDL_EVENT_KEY_UP: {
                 const int idx = key_index(event.key.key);
-                if (idx != kInvalidKeyIndex) current_[idx] = false;
+                if (idx != kInvalidKeyIndex) current_[idx].poll(false);
                 break;
             }
 
@@ -94,38 +87,36 @@ void InputManager::update() {
 
 bool InputManager::held(SDL_Keycode key) const {
     const int idx = key_index(key);
-    return idx != kInvalidKeyIndex && current_[idx];
+    return idx != kInvalidKeyIndex && current_[idx].held();
 }
 
 bool InputManager::pressed(SDL_Keycode key) const {
     const int idx = key_index(key);
-    return idx != kInvalidKeyIndex && current_[idx] && !previous_[idx];
+    return idx != kInvalidKeyIndex && current_[idx].pressed();
 }
 
 bool InputManager::released(SDL_Keycode key) const {
     const int idx = key_index(key);
-    return idx != kInvalidKeyIndex && !current_[idx] && previous_[idx];
+    return idx != kInvalidKeyIndex && current_[idx].released();
+}
+
+void InputManager::consume_edges() {
+    for (auto& key : current_) key.consume_edges();
 }
 
 bool InputManager::any_held() const {
     for (int i = 0; i < kInvalidKeyIndex; ++i) {
-        if (current_[i]) return true;
+        if (current_[i].held()) return true;
     }
     return false;
 }
 
 SDL_Keycode InputManager::any_pressed_key() const {
-    // Find the lowest-index slot that transitioned from up to
-    // down on the most recent update(). Returning the lowest
-    // index is deterministic and matches the order in which
-    // the keys appear in `current_`; the remap UI does not
-    // care which one is reported first, only that the press
-    // is consumed and the next call returns 0 until another
-    // transition happens.
+    // Find the lowest-index slot with an unconsumed press edge. Returning
+    // the lowest index is deterministic and matches the remap UI's stable
+    // key ordering; App clears the latch after a simulation tick consumes it.
     for (int i = 0; i < kInvalidKeyIndex; ++i) {
-        if (current_[i] && !previous_[i]) {
-            return key_from_index(i);
-        }
+        if (current_[i].pressed()) return key_from_index(i);
     }
     return 0;
 }

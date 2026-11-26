@@ -104,7 +104,6 @@ bool AiController::is_off_stage(const Fighter& self, const Arena& arena) {
 void AiController::decide(const Fighter& self,
                           const Fighter& opp,
                           const Arena& arena,
-                          double /*dt*/,
                           int    live_ticks,
                           PlayerIntent& m,
                           CombatIntent& c) {

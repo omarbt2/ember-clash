@@ -18,7 +18,7 @@ int main() {
     match.start_training_recording();
     input.set_held_for_test(SDLK_D, true);
     for (int i = 0; i < 8; ++i) {
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         input.begin_frame_for_test();
     }
     match.stop_training_recording();
@@ -31,7 +31,7 @@ int main() {
     match.play_training_recording();
     const std::uint64_t playback_hash = match.state_hash();
     for (int i = 0; i < 8; ++i) {
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
     }
     assert(match.fighter(0).body().x > start_x);
     assert(!match.training_is_playing());

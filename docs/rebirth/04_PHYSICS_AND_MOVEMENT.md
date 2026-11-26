@@ -7,20 +7,22 @@
 | Owner | Project owner (omarbt2); drafted by Claude |
 | Depends on | 00_SHARED_CONSTANTS.md |
 | Related | 03, 18, 21 |
-| Revision date | 2026-11-24 |
+| Revision date | 2026-11-26 |
 | Open questions | See 27_DECISION_LOG.md |
 
 Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared constants are defined only in [00_SHARED_CONSTANTS.md](00_SHARED_CONSTANTS.md) and referenced as [SC-n].
 
 ---
 
-## 1. Baseline (VERIFIED)
-Constants in `PhysicsConfig.h` are px per 60 Hz tick (kWalkSpeed 6.0 px/tick, gravity, air control factor). Positions/velocities are `double`. `step_motion` is a pure function of (state, intent, tuning). 2 jumps (`jumps_remaining`). No coyote time, jump buffer, run, drop-through, ledge, wall.
+## 1. Implementation checkpoint (PARTIALLY VERIFIED)
+Constants in `PhysicsConfig.h` are authored per 60 Hz tick (kWalkSpeed 6.0 px/tick, gravity, air control factor). Positions/velocities remain floating point; the numeric representation decision D-002 is still open. `step_motion` is a pure function of state, intent and tuning, and no longer accepts `dt` in the current local continuation work. Two jumps, jump buffer, coyote time, run/dash and drop-through foundations are present. Four-sided blast zones are now represented as arena data, and platform motion uses bounded substeps (maximum 16 px per substep) to prevent high-speed tunnelling.
+
+Ledge grabbing/recovery, DI, tech and the approved complete movement feel pass remain missing/unverified. See [P2 fixed-step and collision evidence](evidence/p2-fixed-step-and-collision-recheck-2026-11-26.md).
 
 ## 2. Time model and the dt question (answers Correction C1)
 - World unit = 1 px at logical 1280x720 [SC-8]. Tick = 1/60 s [SC-1].
-- Decision D-001 (PROPOSED): gameplay code takes **no dt**. Mechanism: (a) remove `dt` params from `step_motion`, `Fighter::update`, `Match::update`, AI `decide`; (b) convert `respawn_timer_`, `ko_banner_timer_`, `respawn_invuln_seconds` to int ticks (0.5 s -> 30, 1.5 s -> 90, 1.5 s banner -> 90); (c) renderer interpolates with `alpha = accumulator/step`.
-- **Proof obligation before merging (not just removing a parameter):** record 20 scripted input sequences (60-3600 ticks, covering every attack, KO, respawn) on baseline `2eeceae`; the refactor must reproduce per-tick positions within 0.01 px and identical event ticks (KO, respawn, attack start/end). Any difference must be explained (e.g. 30 vs 29 ticks from float accumulation) and signed off.
+- Decision D-001 remains **PROPOSED; no owner sign-off is recorded**. In the current local continuation work, gameplay update APIs are dt-free (`step_motion`, `Fighter::update`, `Match::update`, AI `decide`); the App's desktop and Web adapters share one fixed 60 Hz accumulator; respawn, post-respawn invulnerability and KO banner timers use integer ticks (30/90/90 respectively). The renderer remains outside the simulation clock. This is implementation evidence, not decision approval.
+- **Replay evidence:** the respawn ordering defect was fixed: the KO-detection tick is now the start boundary, and the 30-tick timer decrements only on the following 30 complete simulation ticks. `ember_test_m5` asserts this deadline. The controlled 20-script/37,200-row replay now has 0 event-field mismatches and a maximum position delta of `0.0001220701 px` (below 0.01 px) against the equivalent-rule control. A separate no-KO replay still captures the intended side-ring-out behavior added by four-sided blast zones; it is a rules delta, not a fixed-step mismatch. D-001 remains PROPOSED pending owner sign-off and broader D-002/cross-platform gates; see the evidence report.
 - Input latency requirement (answers B8): input read at the start of tick N; first resulting state change is visible in tick N state at the end of tick N (<= 1 tick of sim latency). Display latency budget: render once per vsync after tick; measured separately (manual camera test); online delay (SC-15) is additive and separate.
 
 ## 3. Mechanics

@@ -49,8 +49,8 @@ int main() {
 
     std::printf("Ember Clash M5 test harness\n");
     std::printf("  starting stocks = %d\n", combat::kStartingStocks);
-    std::printf("  respawn delay   = %.2fs\n", combat::kRespawnDelaySeconds);
-    std::printf("  respawn invuln  = %.2fs\n", combat::kRespawnInvulnSeconds);
+    std::printf("  respawn delay   = %d ticks\n", combat::kRespawnDelayTicks);
+    std::printf("  respawn invuln  = %d ticks\n", combat::kRespawnInvulnTicks);
     std::printf("\n");
 
     // ---- [1] stocks and respawn on death-zone crossing --------------------
@@ -70,23 +70,27 @@ int main() {
         // Teleport P1 below the death zone; one tick should mark dead,
         // decrement stock, and start the respawn timer.
         p1.body().y = m.arena().death_zone_y() + 50.0f;
-        m.update(input, 1.0 / 60.0);
+        m.update(input);
         CHECK(p1.is_dead());
         CHECK(p1.stocks() == combat::kStartingStocks - 1);
-        // After the respawn delay, P1 should reappear alive and invulnerable.
-        // Run the match for kRespawnDelaySeconds + a bit.
-        const double total_seconds = combat::kRespawnDelaySeconds + 0.10;
-        const double dt = 1.0 / 60.0;
-        for (double t = 0.0; t < total_seconds; t += dt) {
-            m.update(input, dt);
-            if (!p1.is_dead()) break;
+        // KO starts a full 30-tick wait. The KO-detection update is the
+        // start boundary and must not consume one of those elapsed ticks.
+        CHECK(m.respawn_timer_ticks_for_test(0)
+              == combat::kRespawnDelayTicks);
+        for (int tick = 0; tick < combat::kRespawnDelayTicks - 1; ++tick) {
+            m.update(input);
         }
+        CHECK(p1.is_dead());
+        CHECK(m.respawn_timer_ticks_for_test(0) == 1);
+        m.update(input);
         CHECK(!p1.is_dead());
+        CHECK(m.respawn_timer_ticks_for_test(0) == -1);
         CHECK(p1.stocks() == combat::kStartingStocks - 1);  // not refilled
         CHECK(p1.is_invulnerable());
+        CHECK(p1.invuln_frames() == combat::kRespawnInvulnTicks);
         PASS("P1 lost a stock on death");
-        PASS("P1 respawned after kRespawnDelaySeconds");
-        PASS("P1 is invulnerable after respawn");
+        PASS("P1 respawned on the exact fixed-tick deadline");
+        PASS("P1 received exactly 90 invulnerability ticks");
     }
 
     // ---- [2] respawn invulnerability blocks damage ------------------------
@@ -132,11 +136,17 @@ int main() {
         // Decrement P1's stocks to 0 directly. Match::update() will see
         // the change and transition to MatchOver.
         p1.set_stocks_for_test(0);
-        m.update(input, 1.0 / 60.0);
+        m.update(input);
         CHECK(m.phase() == Match::Phase::MatchOver);
-        CHECK(m.ko_banner_timer_seconds() >= 0.0);
+        CHECK(m.ko_banner_timer_ticks() == 0);
+        for (int tick = 0; tick < combat::kKoBannerInitialTicks - 1; ++tick) {
+            m.update(input);
+        }
+        CHECK(m.ko_banner_timer_ticks() == combat::kKoBannerInitialTicks - 1);
+        m.update(input);
+        CHECK(m.ko_banner_timer_ticks() == combat::kKoBannerInitialTicks);
         PASS("Phase transitions to MatchOver when stocks hit 0");
-        PASS("ko_banner_timer_seconds starts at 0 on match end");
+        PASS("KO banner advances on exact 60 Hz tick boundaries");
     }
 
     // ---- [4] rematch via Match::reset() -----------------------------------
@@ -151,7 +161,7 @@ int main() {
             Fighter& p1 = m.fighter(0);
             // Force a match end.
             p1.set_stocks_for_test(0);
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
             CHECK(m.phase() == Match::Phase::MatchOver);
         }  // p1 ref dies here - it's a view into the unique_ptr's pointee,
            // which reset() is about to replace.
@@ -197,7 +207,7 @@ int main() {
         CombatIntent jab{};
         jab.jab_pressed = true;
         PlayerIntent none{};
-        p1.update(none, jab, m.arena(), 1.0 / 60.0);
+        p1.update(none, jab, m.arena());
         CHECK(p1.state() == Fighter::State::Attacking);
 
         // Advance enough frames for the jab to reach its active window
@@ -206,7 +216,7 @@ int main() {
         // the hit-spark records.
         bool landed = false;
         for (int frame = 0; frame < 6; ++frame) {
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
             if (m.last_hit_position_for_test().valid) {
                 landed = true;
                 break;

@@ -50,10 +50,10 @@ struct MotionResult {
     int   coyote_ticks{0};
 };
 
-// One simulation tick. dt is in seconds; the function scales the per-tick
-// physics values by (dt / kFixedStep) so behavior is the same whether the
-// game runs at 60 Hz, 120 Hz, or variable.
-MotionResult step_motion(const MotionState& current, const PlayerIntent& intent, double dt,
+// One fixed simulation tick. Every tuning value and physics constant is
+// expressed per 60 Hz tick; render-frame delta must never be passed here.
+// The shared FixedStepAccumulator decides how many ticks to execute.
+MotionResult step_motion(const MotionState& current, const PlayerIntent& intent,
                          MotionTuning tuning = {});
 
 } // namespace ember

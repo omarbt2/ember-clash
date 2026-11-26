@@ -40,9 +40,9 @@ using namespace ember;
 
 namespace {
 
-void drive(Match& m, InputManager& input, int ticks, double dt = 1.0 / 60.0) {
+void drive(Match& m, InputManager& input, int ticks) {
     for (int i = 0; i < ticks; ++i) {
-        m.update(input, dt);
+        m.update(input);
     }
 }
 
@@ -133,7 +133,7 @@ int main() {
         for (int i = 0; i < combat::kIntroBannerReadyFrames; ++i) {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_D, true);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         CHECK(match.fighter(0).body().x == p1_start);
         CHECK(match.fighter(1).body().x == p2_start);
@@ -159,7 +159,7 @@ int main() {
         // Drive one frame short of the grace end.
         for (int i = 0; i < total - 1; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         // The bot should still NOT be in the Attack state at
         // this point. The very last frame of the grace is
@@ -198,7 +198,7 @@ int main() {
                        + 30;
         for (int i = 0; i < skip; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         // Place P1 directly in front of the bot (within jab range)
         // so the bot has a clear stationary target. The original
@@ -212,7 +212,7 @@ int main() {
         // Drain one tick so the bot's FSM sees the in-range opponent.
         for (int i = 0; i < 5; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         // Now stand still and count attacks over 4 seconds.
         int attacks = 0;
@@ -220,7 +220,7 @@ int main() {
         const int window = 60 * 4;  // 4 seconds
         for (int i = 0; i < window; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
             const auto* bot = match.ai(1);
             const bool attacking = bot && bot->state() == AiController::State::Attack;
             if (attacking && !was_attacking) ++attacks;
@@ -245,14 +245,13 @@ int main() {
         Match match;
         match.set_ai(1, std::make_unique<AiController>(ai::kStandard));
         InputManager input;
-        const float x0 = match.fighter(0).body().x;
         // Skip past the intro + grace so motion is unblocked.
         const int skip = combat::kIntroBannerReadyFrames
                        + combat::kIntroBannerFightFrames
                        + combat::kAiStartupGraceTicks + 5;
         for (int i = 0; i < skip; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const float x_after_skip = match.fighter(0).body().x;
         // 1 second of D-hold should move the player to the
@@ -260,7 +259,7 @@ int main() {
         for (int i = 0; i < 60; ++i) {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_D, true);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const float x1 = match.fighter(0).body().x;
         CHECK(x1 - x_after_skip > 200.0f);
@@ -281,7 +280,7 @@ int main() {
             InputManager input;
             for (int i = 0; i < 600; ++i) {
                 input.begin_frame_for_test();
-                match.update(input, 1.0 / 60.0);
+                match.update(input);
             }
             return match.state_hash();
         };

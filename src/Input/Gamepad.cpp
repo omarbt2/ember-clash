@@ -55,16 +55,13 @@ void Gamepad::close() {
         gamepad_ = nullptr;
         instance_id_ = 0;
         name_[0] = '\0';
-        std::memset(current_,  0, sizeof(current_));
-        std::memset(previous_, 0, sizeof(previous_));
+        for (auto& button : current_) button.reset();
         axis_lx_ = 0;
         axis_ly_ = 0;
     }
 }
 
 void Gamepad::update(const InputManager& input) {
-    std::memcpy(previous_, current_, sizeof(previous_));
-    std::memset(current_, 0, sizeof(current_));
     axis_lx_ = 0;
     axis_ly_ = 0;
 
@@ -95,7 +92,8 @@ void Gamepad::update(const InputManager& input) {
 
     if (!gamepad_) return;
     for (int i = 0; i < kMaxButtons; ++i) {
-        current_[i] = SDL_GetGamepadButton(gamepad_, static_cast<SDL_GamepadButton>(i));
+        current_[i].poll(SDL_GetGamepadButton(
+            gamepad_, static_cast<SDL_GamepadButton>(i)));
     }
     axis_lx_ = SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTX);
     axis_ly_ = SDL_GetGamepadAxis(gamepad_, SDL_GAMEPAD_AXIS_LEFTY);
@@ -104,17 +102,21 @@ void Gamepad::update(const InputManager& input) {
 bool Gamepad::held(SDL_GamepadButton b) const {
     const int i = static_cast<int>(b);
     if (i < 0 || i >= kMaxButtons) return false;
-    return current_[i];
+    return current_[i].held();
 }
 bool Gamepad::pressed(SDL_GamepadButton b) const {
     const int i = static_cast<int>(b);
     if (i < 0 || i >= kMaxButtons) return false;
-    return current_[i] && !previous_[i];
+    return current_[i].pressed();
 }
 bool Gamepad::released(SDL_GamepadButton b) const {
     const int i = static_cast<int>(b);
     if (i < 0 || i >= kMaxButtons) return false;
-    return !current_[i] && previous_[i];
+    return current_[i].released();
+}
+
+void Gamepad::consume_edges() {
+    for (auto& button : current_) button.consume_edges();
 }
 
 float Gamepad::left_stick_x() const {
@@ -130,10 +132,10 @@ float Gamepad::left_stick_y() const {
     return 0.0f;
 }
 
-bool Gamepad::nav_left  () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_LEFT]  || left_stick_x() < -0.5f; }
-bool Gamepad::nav_right () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_RIGHT] || left_stick_x() >  0.5f; }
-bool Gamepad::nav_up    () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_UP]    || left_stick_y() < -0.5f; }
-bool Gamepad::nav_down  () const { return current_[SDL_GAMEPAD_BUTTON_DPAD_DOWN]  || left_stick_y() >  0.5f; }
+bool Gamepad::nav_left  () const { return held(SDL_GAMEPAD_BUTTON_DPAD_LEFT)  || left_stick_x() < -0.5f; }
+bool Gamepad::nav_right () const { return held(SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || left_stick_x() >  0.5f; }
+bool Gamepad::nav_up    () const { return held(SDL_GAMEPAD_BUTTON_DPAD_UP)    || left_stick_y() < -0.5f; }
+bool Gamepad::nav_down  () const { return held(SDL_GAMEPAD_BUTTON_DPAD_DOWN)  || left_stick_y() >  0.5f; }
 bool Gamepad::confirm   () const { return pressed(SDL_GAMEPAD_BUTTON_SOUTH) || pressed(SDL_GAMEPAD_BUTTON_START); }
 bool Gamepad::cancel    () const { return pressed(SDL_GAMEPAD_BUTTON_EAST)  || pressed(SDL_GAMEPAD_BUTTON_BACK); }
 

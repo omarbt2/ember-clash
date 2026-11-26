@@ -459,7 +459,7 @@ Menu::Action Menu::navigate(const InputManager& input, const Gamepad& pad,
             // directly rather than waiting for the BACK path.
             audio.apply_settings(*settings_);
             // P15: mark the file dirty so the periodic flush
-            // (App::step, last_settings_flush_) writes the new
+            // (App fixed-tick settings flush) writes the new
             // value to disk. Previously a change made in the
             // settings UI was lost on crash if the player
             // never pressed BACK.

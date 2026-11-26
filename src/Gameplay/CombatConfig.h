@@ -33,29 +33,23 @@ inline constexpr int kMinHitstunFrames = 4;
 // M5: stocks, respawn, and match flow.
 //
 // All match-flow tuning lives here so designers can change the rules without
-// hunting through the codebase. The constants below are in fixed-step units
-// (frames) or seconds depending on what they gate; the per-frame ticker in
-// Match::update converts seconds to frames using config::kTargetFps.
+// hunting through the codebase. Durations are integer fixed-step ticks (SC-1),
+// not wall-clock seconds; Match::update advances them exactly once per tick.
 // -----------------------------------------------------------------------------
 
 // Number of lives each fighter starts a match with. 3 is the Smash standard.
 inline constexpr int kStartingStocks = 3;
 
-// Time a freshly-spawned fighter is invulnerable (in seconds). Prevents the
-// "spawn trap" of an opponent camping the spawn platform and comboing the
-// respawner before they can act.
-inline constexpr double kRespawnInvulnSeconds = 1.5;
+// Match-flow durations are integer simulation ticks at SC-1's 60 Hz rate.
+// A newly spawned fighter receives 1.5 s (90 ticks) of invulnerability.
+inline constexpr int kRespawnInvulnTicks = 90;
 
-// How long the respawn animation blocks for before the fighter reappears
-// (in seconds). This is the *invisible* respawn time; the fighter is off-
-// stage during this window, so other systems can show effects over the empty
-// platform if they want.
-inline constexpr double kRespawnDelaySeconds = 0.5;
+// The invisible respawn wait is 0.5 s (30 full simulation ticks after KO).
+inline constexpr int kRespawnDelayTicks = 30;
 
-// How long the "GAME!" banner plays before the rematch prompt takes over
-// (in seconds). Smash uses about 2.5s; we go a touch shorter to keep the
-// rematch flow snappy on a 60Hz test rig.
-inline constexpr double kKoBannerInitialSeconds = 1.5;
+// The "GAME!" banner remains visible for 1.5 s (90 ticks) before the winner
+// prompt takes over.
+inline constexpr int kKoBannerInitialTicks = 90;
 
 // Total number of hit-sparks the match can have alive at once. Three slots is
 // plenty for two-fighter gameplay; if a third slot is needed we just don't

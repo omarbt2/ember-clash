@@ -1,22 +1,16 @@
 #pragma once
 
+#include "Core/InputEdgeState.h"
+
 #include <SDL3/SDL_keycode.h>
 
 #include <cstdint>
-#include <cstring>
 
 namespace ember {
 
-// Tracks keyboard state for the current and previous frame.
-//
-// `held`    - key is currently down.
-// `pressed` - transitioned from up to down this frame.
-// `released`- transitioned from down to up this frame.
-//
-// The implementation owns SDL's event queue and polls once per frame in
-// InputManager::update(). Keyboard predicates and gamepad hot-plug snapshots
-// are published from that same pass so device adapters never drain events
-// out from under one another.
+// Tracks keyboard state and preserves key transitions until a simulation
+// tick consumes them. The implementation owns SDL's event queue; gamepad
+// hot-plug snapshots are published from the same poll pass.
 class InputManager {
 public:
     // Slot table layout:
@@ -61,16 +55,14 @@ public:
     bool held   (SDL_Keycode key) const;
     bool pressed(SDL_Keycode key) const;
     bool released(SDL_Keycode key) const;
+    void consume_edges();
 
     // Returns true while any tracked key is down, including keys held across
     // frames where SDL emits no new key-down event.
     bool any_held() const;
 
-    // Returns the first keycode whose state transitioned from
-    // up to down on the most recent update(), or 0 if no key
-    // is newly down. Used by the M13 remap UI to capture a
-    // single keypress. Edge-triggered: the function reports
-    // the key only on the frame the transition happens.
+    // Returns the first keycode with an unconsumed up-to-down transition.
+    // Used by the M13 remap UI to capture a single keypress.
     SDL_Keycode any_pressed_key() const;
 
     // -----------------------------------------------------------------
@@ -105,20 +97,21 @@ public:
     // -----------------------------------------------------------------
     void set_held_for_test(SDL_Keycode key, bool is_down) {
         const int idx = key_index(key);
-        if (idx != kInvalidKeyIndex) current_[idx] = is_down;
+        if (idx != kInvalidKeyIndex) current_[idx].set_for_test(is_down);
     }
-    // Mark the current state as the previous frame's state, so the next
-    // call to pressed(key) returns true only for keys that are held now
-    // but weren't held at this snapshot. Mirrors the SDL_EVENT_KEY_DOWN
-    // edge semantics without requiring an actual event.
+    void poll_key_for_test(SDL_Keycode key, bool is_down) {
+        const int idx = key_index(key);
+        if (idx != kInvalidKeyIndex) current_[idx].poll(is_down);
+    }
+    // Test helper: snapshot the synthetic state and clear any synthetic
+    // latches, mirroring a completed simulation tick without SDL events.
     void begin_frame_for_test() {
-        std::memcpy(previous_, current_, sizeof(previous_));
+        for (auto& key : current_) key.begin_frame_for_test();
         quit_requested_ = false;
     }
     // Convenience: clear all held keys (used between scenarios).
     void clear_for_test() {
-        std::memset(current_,  0, sizeof(current_));
-        std::memset(previous_, 0, sizeof(previous_));
+        for (auto& key : current_) key.reset();
         gamepad_added_count_ = gamepad_removed_count_ = 0;
     }
     void add_gamepad_added_for_test(std::int32_t id) {
@@ -131,8 +124,7 @@ public:
     }
 
 private:
-    bool current_[kMaxKeys]{};
-    bool previous_[kMaxKeys]{};
+    InputEdgeState current_[kMaxKeys]{};
     bool quit_requested_{false};
     std::int32_t gamepad_added_[kMaxGamepadEventsPerFrame]{};
     std::int32_t gamepad_removed_[kMaxGamepadEventsPerFrame]{};

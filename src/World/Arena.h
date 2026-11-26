@@ -15,7 +15,17 @@ struct Platform {
     Aabb aabb;
 };
 
-// Owns the static arena layout (platforms + death zone) and is the single
+// Four-sided out-of-bounds limits are arena data, not hard-coded inside the
+// death test. The playable interval is half-open at each boundary according
+// to Arena::is_out_of_bounds().
+struct BlastZone {
+    float left{0.0f};
+    float right{0.0f};
+    float top{0.0f};
+    float bottom{0.0f};
+};
+
+// Owns the static arena layout (platforms + blast zone) and is the single
 // source of truth for "what's solid here". Fighters query it for collision.
 class Arena {
 public:
@@ -35,19 +45,23 @@ public:
                                           static_cast<std::size_t>(count_));
     }
 
-    // World-space y beyond which a fighter has died. Anything below is
-    // considered outside the playable space.
-    float death_zone_y() const { return death_zone_y_; }
+    // Full four-sided blast-zone data. A body beyond any side is KO'd.
+    const BlastZone& blast_zone() const { return blast_zone_; }
+    // Compatibility accessor for older bottom-only consumers.
+    float death_zone_y() const { return blast_zone_.bottom; }
 
     // Y at which a freshly-spawned fighter should sit. Two slots: P1 (left)
     // and P2 (right).
     float spawn_y() const { return spawn_y_; }
     float spawn_x(int player_index) const;
 
-    // Resolves AABB-vs-platform collision against every platform. Mutates
-    // body and velocity; returns true if the body ended up resting on top of
-    // at least one platform (i.e. grounded this frame).
+    // Resolves AABB-vs-platform overlap at the body's current position.
+    // Mutates body and velocity; returns true if the body landed this step.
     bool resolve_collision(Aabb& body, Vec2& velocity) const;
+    // Integrates one fixed-tick velocity using bounded substeps before each
+    // collision pass. This prevents a fast hitstun/launch vector from crossing
+    // a thin platform between two endpoint-only overlap checks.
+    bool move_and_resolve(Aabb& body, Vec2& velocity) const;
     // Four-sided blast-zone test, evaluated by Match before fighter update.
     bool is_out_of_bounds(const Aabb& body) const;
 
@@ -58,7 +72,7 @@ private:
     std::array<Platform, kMaxPlatforms> data_{};
     Id    id_{Id::TrainingRing};
     int   count_{0};
-    float death_zone_y_{0.0f};
+    BlastZone blast_zone_{};
     float spawn_y_{0.0f};
     float spawn_x_[2]{0.0f, 0.0f};
 };

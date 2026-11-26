@@ -27,12 +27,6 @@ using namespace ember;
 
 namespace {
 
-void drive(Match& m, InputManager& input, int ticks, double dt = 1.0 / 60.0) {
-    for (int i = 0; i < ticks; ++i) {
-        m.update(input, dt);
-    }
-}
-
 // Begin a J-tap on the next tick for P1. Jab startup = 3, active = 2,
 // total = 11 frames; the active window is on tick 3-4 of the attack.
 void begin_jab_for_p1(InputManager& input) {
@@ -117,7 +111,7 @@ int main() {
             } else {
                 input.begin_frame_for_test();
             }
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
 
             if (m.ai(1)->state() == AiController::State::Defend) {
                 // We can't probe the intent directly because the
@@ -125,17 +119,13 @@ int main() {
                 // the bot's x position a few frames later and confirm
                 // it moved LEFT (away from the opponent on the right).
                 const float x_before = m.fighter(1).body().x;
-                int defend_ticks = 0;
                 for (int k = 0; k < 8; ++k) {
                     if (tick % 11 == 0) {
                         begin_jab_for_p1(input);
                     } else {
                         input.begin_frame_for_test();
                     }
-                    m.update(input, 1.0 / 60.0);
-                    if (m.ai(1)->state() == AiController::State::Defend) {
-                        ++defend_ticks;
-                    }
+                    m.update(input);
                 }
                 const float x_after = m.fighter(1).body().x;
                 if (x_after < x_before - 1.0f) {
@@ -178,7 +168,7 @@ int main() {
             } else {
                 input.begin_frame_for_test();
             }
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
             if (m.ai(1)->state() == AiController::State::Defend) {
                 reached_defend = true;
                 break;
@@ -215,7 +205,7 @@ int main() {
         // then let the jab run its course (11 frames) without re-pressing.
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_J, true);
-        m.update(input, 1.0 / 60.0);
+        m.update(input);
         input.set_held_for_test(SDLK_J, false);
 
         // Drive with no further input. The bot should reach Defend,
@@ -224,7 +214,7 @@ int main() {
         bool reached_defend = false;
         for (int i = 0; i < 30; ++i) {
             input.begin_frame_for_test();
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
             if (m.ai(1)->state() == AiController::State::Defend) {
                 reached_defend = true;
                 break;
@@ -239,7 +229,7 @@ int main() {
         bool left_defend = false;
         for (int i = 0; i < 60; ++i) {
             input.begin_frame_for_test();
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
             if (m.ai(1)->state() != AiController::State::Defend) {
                 left_defend = true;
                 break;

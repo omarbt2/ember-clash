@@ -21,23 +21,9 @@
 using namespace ember;
 
 namespace {
-// AABB overlap predicate (same convention as the production hit resolver).
-bool aabb_overlap(const Aabb& a, const Aabb& b) {
-    return a.x < b.x + b.w
-        && a.x + a.w > b.x
-        && a.y < b.y + b.h
-        && a.y + a.h > b.y;
-}
-
-// Drive a Match forward N ticks. We use a real InputManager (its default
-// state has no keys held, so the human fighter stands still). The test
-// never calls InputManager::update() because that would require SDL
-// initialization; the constructor leaves the key arrays zeroed which is
-// exactly the "no input" state.
-void drive(Match& m, InputManager& input, int ticks, double dt = 1.0/60.0) {
-    for (int i = 0; i < ticks; ++i) {
-        m.update(input, dt);
-    }
+// Advance the match without SDL event polling; the default input state is idle.
+void drive(Match& m, InputManager& input, int ticks) {
+    for (int i = 0; i < ticks; ++i) m.update(input);
 }
 } // namespace
 
@@ -215,8 +201,10 @@ int main() {
         m.force_live_state_for_test();
         m.set_ai(1, std::make_unique<AiController>(bot));
         Match& mm = m;  // non-const for fighter access
-        // Knock the bot off stage (velocity upward, off the right side).
-        mm.fighter(1).apply_hit(0, {600.0f, -50.0f}, 0);
+        // Launch just beyond the platform edge but keep the fighter inside
+        // the arena side-KO margin. A larger impulse skips the short airborne
+        // recovery window and correctly gets handled as an immediate KO.
+        mm.fighter(1).apply_hit(0, {200.0f, -50.0f}, 0);
 
         bool saw_recover = false;
         InputManager input;

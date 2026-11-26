@@ -218,11 +218,6 @@ private:
     Action pending_mode_action_{Action::kStartMatch};
     Action pending_action_{Action::kNone};
 
-    // Settings editing: which field is currently being edited by
-    // the +/- keys. -1 means "no field being edited" (the
-    // highlighted entry is treated as a plain button).
-    int  settings_focus_{-1};
-
     // Settings entries are recomputed whenever the user touches
     // a value so the right-hand column is always current. They
     // are stored as a member (not a const-ref to a function
@@ -247,11 +242,6 @@ private:
 
     // Tick counter for the title-screen pulse animation.
     int  title_pulse_ticks_{0};
-
-    // True when we're inside the settings "value editor" sub-
-    // state, where left/right adjust the value instead of
-    // navigating the list.
-    bool editing_value_{false};
 
     // -----------------------------------------------------------------
     // M13 remap-capture sub-state.

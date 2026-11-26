@@ -19,7 +19,7 @@
 namespace ember::ai {
 
 // Single source of truth for how the AI "feels". All values are tuned
-// for a 60 Hz simulation; the FSM scales them by dt where appropriate.
+// for a fixed 60 Hz simulation tick; no variable-delta scaling is used.
 struct Difficulty {
     // 0..100. 0 = bot decides every frame (a strong CPU is a problem in
     // 1v1 because it can react on the same frame as the input). 20 = about

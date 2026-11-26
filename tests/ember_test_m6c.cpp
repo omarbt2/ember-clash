@@ -91,17 +91,16 @@ const char* g_scenario = nullptr;
 inline void tick(ember::InputManager& input,
                  ember::Match& match,
                  int n = 1) {
-    const double dt = 1.0 / 60.0;
     for (int i = 0; i < n; ++i) {
         // Per App::step, the order is:
         //   1. InputManager::update()    -> snapshot previous_, drain events
-        //   2. Match::update(input, dt)  -> reads input
+        //   2. Match::update(input)  -> reads input
         // In the test seam, "snapshot previous_" is begin_frame_for_test().
         // We must call it BEFORE setting this frame's keys, so that
         // pressed() = current && !previous is true on the frame a key
         // first appears.
         input.begin_frame_for_test();
-        match.update(input, dt);
+        match.update(input);
     }
 }
 
@@ -132,7 +131,7 @@ int main() {
         for (int i = 0; i < 30; ++i) {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_D, true);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const Aabb after_right = match.fighter(0).body();
         CHECK(after_right.x > start.x);
@@ -146,7 +145,7 @@ int main() {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_D, false);
             input.set_held_for_test(SDLK_A, true);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const Aabb after_left = match.fighter(0).body();
         CHECK(after_left.x < after_right.x);
@@ -159,14 +158,14 @@ int main() {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_A, false);
             input.set_held_for_test(SDLK_D, false);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const Aabb after_idle = match.fighter(0).body();
         for (int i = 0; i < 10; ++i) {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_A, false);
             input.set_held_for_test(SDLK_D, false);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const Aabb after_idle2 = match.fighter(0).body();
         CHECK(std::fabs(after_idle2.x - after_idle.x) < 0.01f);
@@ -190,7 +189,7 @@ int main() {
         // Tap W (jump_pressed) for one frame, then release.
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_W, true);
-        match.update(input, 1.0 / 60.0);  // jump edge this frame
+        match.update(input);  // jump edge this frame
         input.set_held_for_test(SDLK_W, false);
 
         // Tick a few frames - vy should be negative (going up).
@@ -201,7 +200,7 @@ int main() {
         // Tick a lot (~3 seconds) - should land and re-ground.
         for (int i = 0; i < 180; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         CHECK(match.fighter(0).is_grounded());
         // Y should be back at the spawn-platform top, give or take a few px.
@@ -222,19 +221,19 @@ int main() {
         // First jump.
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_W, true);
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         input.set_held_for_test(SDLK_W, false);
         // Tick a few so we're clearly airborne but not apex.
         for (int i = 0; i < 5; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         CHECK(!match.fighter(0).is_grounded());
 
         // Second jump in air.
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_W, true);
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         input.set_held_for_test(SDLK_W, false);
         // After double jump, vy should be kDoubleJumpVelocity (-12) + g,
         // i.e. between -12 and -10 depending on the order of operations.
@@ -244,7 +243,7 @@ int main() {
         // Tick until landing; once grounded, we should be able to jump again.
         for (int i = 0; i < 240; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         CHECK(match.fighter(0).is_grounded());
     }
@@ -263,18 +262,18 @@ int main() {
         // Jump and let go.
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_W, true);
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         input.set_held_for_test(SDLK_W, false);
         for (int i = 0; i < 10; ++i) {  // rise for ~10 ticks
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const Vec2 v_apex = match.fighter(0).velocity();
         // Now hold S (fast fall).
         for (int i = 0; i < 10; ++i) {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_S, true);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const Vec2 v_after_ff = match.fighter(0).velocity();
         // Fast fall should accelerate downward more than gravity alone
@@ -284,7 +283,7 @@ int main() {
         for (int i = 0; i < 5; ++i) {
             input.begin_frame_for_test();
             input.set_held_for_test(SDLK_S, false);
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
     }
 
@@ -317,12 +316,12 @@ int main() {
         // Tap J (jab) for one frame.
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_J, true);
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         input.set_held_for_test(SDLK_J, false);
         // Let the attack play out + some post-attack frames.
         for (int i = 0; i < 20; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         const int damage_after = match.fighter(1).damage_percent();
         CHECK(damage_after > damage_before);
@@ -356,7 +355,7 @@ int main() {
         // attack_frame_ reaches 3 (the first active frame).
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_J, true);
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         input.set_held_for_test(SDLK_J, false);
         // We don't know exactly which of the next few ticks the hit
         // lands on (the test framework advances attack_frame_ at the
@@ -366,7 +365,7 @@ int main() {
         bool hit_stop_armed = false;
         for (int i = 0; i < 5; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
             if (match.is_in_hit_stop()) { hit_stop_armed = true; break; }
         }
         CHECK(hit_stop_armed);
@@ -378,7 +377,7 @@ int main() {
         const float frozen_y = p2.y;
         for (int i = 0; i < ember::combat::kHitStopFrames; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
             CHECK(std::fabs(p2.y - frozen_y) < 0.001f);
         }
         // After kHitStopFrames ticks the freeze must be over.
@@ -410,14 +409,14 @@ int main() {
 
         // One frame is enough for the death-zone check (pre-update) to fire.
         input.begin_frame_for_test();
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         CHECK(match.fighter(1).stocks() == stocks_before - 1);
         CHECK(match.fighter(1).is_dead());
 
         // Wait out the respawn delay + a few frames.
         for (int i = 0; i < 60; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         // P2 should be alive again with the respawn invuln window.
         CHECK(!match.fighter(1).is_dead());
@@ -443,12 +442,12 @@ int main() {
             p2.x = match.arena().spawn_x(1);
             p2.y = death_y + 100.0f;
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
             // Wait out respawn delay (0.5s = 30 ticks) so they come back
             // (unless this is the last stock).
             for (int i = 0; i < 60; ++i) {
                 input.begin_frame_for_test();
-                match.update(input, 1.0 / 60.0);
+                match.update(input);
             }
         }
         // Now stocks should be 0 and the match should be over.
@@ -474,15 +473,22 @@ int main() {
             p2.x = match.arena().spawn_x(1);
             p2.y = death_y + 100.0f;
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
-            for (int i = 0; i < 60; ++i) {
-                input.begin_frame_for_test();
-                match.update(input, 1.0 / 60.0);
+            match.update(input);
+            // Let the first two stocks respawn; leave the final KO shake
+            // unconsumed so the rematch reset can prove it clears it.
+            if (s + 1 < combat::kStartingStocks) {
+                for (int i = 0; i < 60; ++i) {
+                    input.begin_frame_for_test();
+                    match.update(input);
+                }
             }
         }
         CHECK(match.phase() == Match::Phase::MatchOver);
 
-        // Rematch.
+        // Rematch. Force a non-zero hit-stop as a regression seam: reset
+        // must clear both simulation freeze and presentation shake state.
+        CHECK(match.is_in_ko_shake());
+        match.set_hit_stop_frames_for_test(2);
         match.reset();
         CHECK(match.phase() == Match::Phase::Fighting);
         CHECK(match.fighter(0).stocks() == combat::kStartingStocks);
@@ -494,6 +500,15 @@ int main() {
         // Both fighters should be grounded and at their spawn positions.
         CHECK(match.fighter(0).is_grounded());
         CHECK(match.fighter(1).is_grounded());
+        CHECK(!match.is_in_ko_shake());
+        CHECK(match.ko_shake_frames() == 0);
+        CHECK(match.ko_shake_offset_x() == 0.0f);
+        CHECK(match.ko_shake_offset_y() == 0.0f);
+        CHECK(!match.is_in_hit_stop());
+        CHECK(match.hit_stop_frames() == 0);
+        Match fresh_match;
+        CHECK(match.shake_rng_state_for_test()
+              == fresh_match.shake_rng_state_for_test());
     }
 
     // -------------------------------------------------------------------
@@ -529,7 +544,7 @@ int main() {
             // collision, decrements stocks, and (if the last stock was
             // just lost) arms the shake.
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
             if (match.phase() == Match::Phase::MatchOver) {
                 observed_match_end = true;
                 // The shake must be armed and at full duration right
@@ -546,7 +561,7 @@ int main() {
             // the fighter respawn so we can re-launch them.
             for (int i = 0; i < 60; ++i) {
                 input.begin_frame_for_test();
-                match.update(input, 1.0 / 60.0);
+                match.update(input);
             }
         }
         CHECK(observed_match_end);
@@ -555,7 +570,7 @@ int main() {
         // Tick the shake to completion.
         for (int i = 0; i < ember::combat::kKoShakeFrames + 4; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         // After kKoShakeFrames ticks the shake is fully decayed.
         CHECK(!match.is_in_ko_shake());
@@ -590,7 +605,7 @@ int main() {
 
         input.begin_frame_for_test();
         input.set_held_for_test(SDLK_J, true);
-        match.update(input, 1.0 / 60.0);
+        match.update(input);
         input.set_held_for_test(SDLK_J, false);
 
         // The jab has 3 startup + 2 active frames. Walk through the
@@ -599,7 +614,7 @@ int main() {
         // successful hit, not on the tap.
         for (int i = 0; i < 6; ++i) {
             input.begin_frame_for_test();
-            match.update(input, 1.0 / 60.0);
+            match.update(input);
         }
         // The hit lands. The spark should be valid and the impact x
         // should be inside the hitbox (p1.x+12 .. p1.x+40, with the

@@ -24,7 +24,7 @@
 |---|---|---|---|---|
 | P0 Recovery/Audit | One reconciled source, clean history, clean Release build, all baseline tests, platform/hardware limits recorded | Newest ZIP/bundle verified; 181/181 files match; bundle fsck passes; local `1e3175a` descends from remote Phase 0 and master history; docs checker 61 files, asset tests 7/7 and four strict isolated C++ tests pass; SDL3 `release-3.2.10` fetch still fails DNS | PARTIALLY VERIFIED / BUILD BLOCKED | Obtain network or a provenance/hash-verified SDL3 cache; clean Release build + full CTest; reconcile the non-identical remote recovery ref; verify Windows/WASM/hardware as applicable |
 | P1 Design/Technical Plan | Owner-approved production bible, decisions resolved/deferred with reasons, shared constants and no contradictions | Master plan and 29 design/technical docs present; user explicitly authorized execution; decision log still contains unresolved/proposed items | PARTIALLY VERIFIED | Close or explicitly defer remaining D- decisions; update constants and decision log; verify consistency with implementation |
-| P2 Physics/Movement | Deterministic integer-tick model or approved representation; full movement set; replay gate and 20 replay comparison | Jump buffer, coyote time, double jump, run/dash and drop-through foundations exist; motion tests pass isolated | PARTIALLY VERIFIED | Complete ledge/DI/tech/blast-zone rules; convert remaining timers as decided; prove replay determinism and no-tunnel fuzz |
+| P2 Physics/Movement | Deterministic integer-tick model or approved representation; full movement set; replay gate and 20 replay comparison | Shared 60 Hz fixed-step accumulator used by Desktop/Web; dt-free gameplay APIs; 30/90/90 integer-tick respawn/invulnerability/KO-banner timers; input-edge latching; data-driven four-sided blast zones; bounded 16 px collision substeps; 25 headless suites pass under GCC + Clang and GCC ASan/UBSan. Replay equivalence NOT passed: old float respawn timer observed at update 31 vs current integer tick 30, and side blast zones intentionally differ | PARTIALLY VERIFIED | Rebaseline 20 scripts to isolate D-001; owner sign-off on timer event tick; D-002 numeric gate; POD snapshot completeness; ledge/DI/tech; CI/full builds and 2-player feel test |
 | P3 Combat Engine | Data-driven moves; complete attack states, grabs/throws, projectiles/traps, armor/priority/staleness/DI; frame-exact tests and snapshot completeness | Attack table validation and combat-resolution foundation exist; isolated attack-table test passes | PARTIALLY VERIFIED | Missing major move families and lifecycle/state snapshot coverage; full scenario harness and tick-exact suite |
 | P4 Two Fully Playable Fighters | Kaelen and Torga each have complete, distinct move sets/hooks, matchup balance and playtest evidence | Two fighter slots and shared combat foundation exist; fighter design documents present | PARTIALLY VERIFIED | Unique hooks and all moves playable, matchup simulator, human playtests and balance evidence |
 | P5 Real Art/Animation Pipeline | Production character art and all 47 clips/fighter; rig/atlas/animation data; ≤2 px hitbox alignment; licensing; real assets in build | Art manifest validator and seven validator tests pass; current runtime still uses procedural placeholder sprites; no complete authored production atlas/rig assets in repo | MISSING production art / PARTIAL tooling | Approve art method; deliver Kaelen/Torga 47 clips each first; import into runtime; review hand/arm/action poses and licenses; no placeholder release assets |
@@ -42,12 +42,13 @@
 
 | Command/test | Result | Limitation |
 |---|---|---|
-| `python3 tools/check_rebirth_docs.py` | PASS — 61 Markdown files | Documentation consistency only |
+| `python3 tools/check_rebirth_docs.py` | PASS — 63 Markdown files | Documentation consistency only |
 | `python3 -m unittest discover -s tools/tests -v` | PASS — 7 tests | Asset-manifest validator only |
-| `ember_test_attack_table` (strict GCC C++20) | PASS — compile and execute | Attack-table logic only |
-| `ember_test_ai_presets` (strict GCC C++20) | PASS — compile and execute | AI preset data only |
-| `ember_test_training_recorder` (strict GCC C++20) | PASS — compile and execute | Bounded recorder utility only |
-| `ember_test_rebirth_motion` (strict GCC C++20) | PASS — compile and execute | Platform-neutral movement step logic only |
+| 25 current headless C++ suites (strict GCC 14 C++20) | PASS — 25/25 compile and execute | SDL declarations supplied by a local compatibility shim; not a full SDL3 build |
+| Same 25 suites (strict Clang 17 C++20) | PASS — 25/25 compile and execute | Same shim limitation |
+| Same 25 suites (GCC 14 ASan + UBSan) | PASS — 25/25 compile and execute | Headless sanitizer matrix; not runtime graphics/audio validation |
+| P2 replay comparison | NOT PASSED | One-update respawn discrepancy and intentional side blast-zone behavior change; see dedicated evidence |
+| App/Web entry-point syntax checks with SDL/Emscripten shims | PASS | Emscripten/WASM toolchain and runtime not installed |
 | Local CI workflow YAML parse | PASS — docs/Linux/Windows/WebAssembly jobs present | Syntax only; workflow not verified on GitHub |
 | Bundle integrity / ZIP tree comparison | PASS — complete bundle, fsck clean, 181 files match | Recovery integrity only |
 | CMake Release configure | BLOCKED — SDL3 fetch DNS failure | Stops before project compilation |

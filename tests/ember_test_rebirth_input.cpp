@@ -32,10 +32,8 @@ static void check(bool ok, const char* what) {
     ok ? ++g_pass : ++g_fail;
 }
 
-static const double kDt = 1.0 / 60.0;
-
 static void tick(Match& m, InputManager& in, int n = 1) {
-    for (int i = 0; i < n; ++i) { m.update(in, kDt); in.begin_frame_for_test(); }
+    for (int i = 0; i < n; ++i) { m.update(in); in.begin_frame_for_test(); }
 }
 
 // Fresh two-human match with both fighters standing on the ground, far apart.

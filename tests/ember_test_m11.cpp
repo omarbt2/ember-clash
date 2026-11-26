@@ -40,12 +40,6 @@ using namespace ember;
 
 namespace {
 
-void drive(Match& m, InputManager& input, int ticks, double dt = 1.0/60.0) {
-    for (int i = 0; i < ticks; ++i) {
-        m.update(input, dt);
-    }
-}
-
 } // namespace
 
 int main() {
@@ -84,7 +78,7 @@ int main() {
         input.clear_for_test();
         for (int i = 0; i < 30; ++i) {
             input.begin_frame_for_test();
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
         }
         const std::uint64_t h30 = m.state_hash();
         check("state_hash() changes after 30 ticks of bot-only activity",
@@ -96,6 +90,83 @@ int main() {
         const std::uint64_t h30_again = m.state_hash();
         check("state_hash() is deterministic (same state -> same hash)",
               h30 == h30_again);
+    }
+
+    // ---- [1b] Hash fidelity and simulation-state coverage -----------------
+    std::printf("\n[1b] Hash fidelity and simulation-state coverage\n");
+    {
+        auto fighter_hash_changes = [](auto mutate) {
+            Match baseline;
+            Match changed;
+            mutate(changed.fighter(0));
+            return baseline.state_hash() != changed.state_hash();
+        };
+        check("fractional body movement changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.body().x += 0.25f; }));
+        check("fractional velocity changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.velocity().x += 0.125; }));
+        check("jump buffer timer changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_jump_buffer_ticks_for_test(3); }));
+        check("coyote timer changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_coyote_ticks_for_test(2); }));
+        check("attack hit-consumed state changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_attack_has_hit_for_test(true); }));
+        check("shield and guard timer change the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_guard_state_for_test(550, 4); }));
+        check("dodge frame, cooldown and direction change the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_dodge_state_for_test(2, 30, -1); }));
+        check("surge meter and active frames change the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_surge_state_for_test(321, 12); }));
+        check("parry flash changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_parry_flash_for_test(5); }));
+        check("up-special resource changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_up_special_used_for_test(true); }));
+        check("air-dodge resource changes the hash", fighter_hash_changes(
+            [](Fighter& f) { f.set_air_dodge_used_for_test(true); }));
+
+        Match default_ai;
+        Match tuned_ai;
+        ai::Difficulty tuned = ai::kStandard;
+        tuned.seed ^= 0x13579BDFu;
+        tuned.attack_frequency = 17;
+        tuned_ai.set_ai(1, std::make_unique<AiController>(tuned));
+        check("AI tuning and seed changes the hash",
+              default_ai.state_hash() != tuned_ai.state_hash());
+
+        Match default_runtime;
+        Match changed_runtime;
+        changed_runtime.ai_mutable(1)->set_runtime_state_for_test(
+            AiController::State::Retreat, 7, 123, 0xDEADBEEFu);
+        check("AI FSM, attack age and RNG changes the hash",
+              default_runtime.state_hash() != changed_runtime.state_hash());
+
+        Match default_shake_rng;
+        Match changed_shake_rng;
+        changed_shake_rng.set_shake_rng_state_for_test(
+            default_shake_rng.shake_rng_state_for_test() ^ 0xA5A5A5A5u);
+        check("KO shake RNG state changes the hash",
+              default_shake_rng.state_hash() != changed_shake_rng.state_hash());
+
+        // Simultaneous matches must not consume one process-global random
+        // stream. Their KO shake state and fingerprints remain in lockstep.
+        Match shake_left;
+        Match shake_right;
+        shake_left.set_ai(1, nullptr);
+        shake_right.set_ai(1, nullptr);
+        shake_left.force_live_state_for_test();
+        shake_right.force_live_state_for_test();
+        shake_left.fighter(0).set_stocks_for_test(0);
+        shake_right.fighter(0).set_stocks_for_test(0);
+        InputManager shake_input;
+        bool shake_lockstep = true;
+        for (int tick = 0; tick < 8; ++tick) {
+            shake_left.update(shake_input);
+            shake_right.update(shake_input);
+            shake_lockstep = shake_lockstep
+                && shake_left.state_hash() == shake_right.state_hash();
+        }
+        check("independent KO shakes remain deterministic in lockstep",
+              shake_lockstep);
     }
 
     // ---- [2] Same inputs + same seeds -> same hash sequence ----------------
@@ -121,7 +192,7 @@ int main() {
             hashes.reserve(601);
             hashes.push_back(m.state_hash());
             for (int i = 0; i < 600; ++i) {
-                m.update(input, 1.0 / 60.0);
+                m.update(input);
                 hashes.push_back(m.state_hash());
             }
             return hashes;
@@ -167,7 +238,7 @@ int main() {
             std::vector<std::uint64_t> hashes;
             hashes.reserve(301);
             for (int i = 0; i < 300; ++i) {
-                m.update(input, 1.0 / 60.0);
+                m.update(input);
                 hashes.push_back(m.state_hash());
             }
             return hashes;
@@ -223,7 +294,7 @@ int main() {
                 } else {
                     input.begin_frame_for_test();
                 }
-                m.update(input, 1.0 / 60.0);
+                m.update(input);
                 hashes.push_back(m.state_hash());
             }
             return hashes;

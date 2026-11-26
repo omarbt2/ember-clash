@@ -16,10 +16,11 @@
 // instance IDs here, avoiding the old double-poll bug. P8 still needs a
 // multi-slot device manager before 3-4 simultaneous controllers are supported.
 
+#include "Core/InputEdgeState.h"
+
 #include <SDL3/SDL_gamepad.h>
 
 #include <cstdint>
-#include <cstring>
 
 namespace ember {
 
@@ -50,6 +51,7 @@ public:
     bool held   (SDL_GamepadButton b) const;
     bool pressed(SDL_GamepadButton b) const;
     bool released(SDL_GamepadButton b) const;
+    void consume_edges();
 
     // Axis queries. The left stick X axis is in [-32768, 32767]
     // after SDL normalises it; the predicates below apply a small
@@ -102,14 +104,17 @@ public:
     void set_held_for_test(SDL_GamepadButton b, bool is_down) {
         const int idx = static_cast<int>(b);
         if (idx < 0 || idx >= kMaxButtons) return;
-        current_[idx] = is_down;
+        current_[idx].set_for_test(is_down);
+    }
+    void poll_button_for_test(SDL_GamepadButton b, bool is_down) {
+        const int idx = static_cast<int>(b);
+        if (idx >= 0 && idx < kMaxButtons) current_[idx].poll(is_down);
     }
     void begin_frame_for_test() {
-        std::memcpy(previous_, current_, sizeof(previous_));
+        for (auto& button : current_) button.begin_frame_for_test();
     }
     void clear_for_test() {
-        std::memset(current_,  0, sizeof(current_));
-        std::memset(previous_, 0, sizeof(previous_));
+        for (auto& button : current_) button.reset();
     }
     // Test seam: did the last rumble() call reach the SDL
     // backend? The headless harness can use this to assert that
@@ -129,8 +134,7 @@ private:
     SDL_JoystickID instance_id_{0};
     char name_[128]{};
 
-    bool current_ [kMaxButtons]{};
-    bool previous_[kMaxButtons]{};
+    InputEdgeState current_[kMaxButtons]{};
 
     int  axis_lx_{0};
     int  axis_ly_{0};

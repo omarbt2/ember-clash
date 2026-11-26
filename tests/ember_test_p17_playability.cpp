@@ -9,8 +9,8 @@
 //   tick gameplay constant assumes 60 Hz. This test pins the two
 //   invariants that future refactors must keep:
 //
-//     1. Clock::fixed_step_seconds() == 1/60 s (the dt the App::run
-//        accumulator feeds into update()).
+//     1. Clock::fixed_step_seconds() == 1/60 s (the render clock's fixed
+//        simulation quantum; gameplay APIs now advance one integer tick).
 //     2. The system has a render-scale knob that can be set above 1.0
 //        without re-creating the renderer (the camera uses it to zoom
 //        the match up to 1.3x while leaving the HUD at 1.0x).
@@ -65,7 +65,7 @@ bool nearly_equal(double a, double b, double eps = 1e-9) {
 
 int main() {
     // 1) Clock::fixed_step_seconds() must be 1 / kTargetFps. This is
-    //    the dt the App::run accumulator forwards to update(); if
+    //    the fixed simulation quantum used by App's accumulator; if
     //    it ever drifts, every per-tick constant in the game
     //    (kWalkSpeed, kGravity, kHitStopFrames, kIntroBannerReady
     //    Frames, etc.) will also drift with it.

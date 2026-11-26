@@ -143,80 +143,38 @@ int App::run() {
     }
 
     running_ = true;
-
-    // P17: fixed-timestep accumulator. PhysicsConfig and
-    // CombatConfig constants are all in "per 60 Hz tick" units
-    // (e.g. kWalkSpeed=6.0 px/tick, kHitSparkFrames=6 ticks,
-    // kIntroBannerReadyFrames=60 ticks = 1 second). Running the
-    // simulation more than 60 times per second on a high-refresh
-    // display made every action, attack, and AI decision roughly
-    // N times faster than the numbers promised. Conversely,
-    // running it at 30 fps (windowed, dragging) would make the
-    // game feel sluggish. The accumulator below is the standard
-    // "Glenn Fiedler" fix: render as fast as the display can
-    // show frames, simulate exactly kTargetFps times per second
-    // (or in catch-up chunks after a stall, capped at
-    // kMaxSimTicksPerFrame so a long pause cannot time-warp the
-    // match).
-    const double sim_step = clock_->fixed_step_seconds();
-    sim_accumulator_      = 0.0;
-
+    sim_clock_.reset();
     while (running_) {
         clock_->update();
-        const double frame_dt = clock_->delta_seconds();
-        sim_accumulator_     += frame_dt;
-
-        // 1) Handle events ONCE per render frame so the player
-        //    can press quit / pause even on a 240 Hz monitor
-        //    without queueing four quit events per visible frame.
-        handle_events();
-        if (input_->quit_requested()) {
-            running_ = false;
-            break;
-        }
-
-        // 2) Run 0..N sim ticks at exactly sim_step each.
-        int sim_ticks = 0;
-        while (sim_accumulator_ >= sim_step
-               && sim_ticks < kMaxSimTicksPerFrame) {
-            // update() with a fixed sim_step; the match's
-            // internal counters (match_startup_ticks_,
-            // live_ticks_, attack cooldowns, AI state_ticks_)
-            // are all expressed in ticks so this is correct
-            // and deterministic.
-            update(sim_step);
-            sim_accumulator_ -= sim_step;
-            ++sim_ticks;
-        }
-        // If we hit the cap (long stall, breakpoint, OS hiccup),
-        // discard the leftover time so the next frame does not
-        // also try to catch up. The player will see a tiny jump
-        // which is much better than a 15-tick time-warp.
-        if (sim_ticks >= kMaxSimTicksPerFrame) {
-            sim_accumulator_ = 0.0;
-        }
-        // 3) Render EXACTLY once per visible frame, using the
-        //    post-tick state. The previous code called step()
-        //    which rendered after every sim tick, causing
-        //    duplicate frames on a 144/240 Hz monitor and
-        //    burn-in of sprite state in SDL's texture cache.
-        render();
+        step_frame(clock_->delta_seconds());
     }
 
     shutdown();
     return 0;
 }
 
-void App::step(double dt) {
+void App::step_frame(double frame_dt) {
+    // Poll once per render frame so quit/window/device events remain
+    // responsive even when this frame does not produce a simulation tick.
     handle_events();
-
     if (input_->quit_requested()) {
         running_ = false;
         return;
     }
 
-    update(dt);
+    const FixedStepAccumulator::Result advance = sim_clock_.advance(frame_dt);
+    for (int tick = 0; tick < advance.ticks; ++tick) {
+        update();
+    }
+
+    // Render exactly once per visible frame, independently of simulation
+    // frequency. This is shared by desktop and Emscripten to prevent 120 Hz
+    // displays from running 120 gameplay ticks per wall-clock second.
     render();
+}
+
+void App::step(double frame_dt) {
+    step_frame(frame_dt);
 }
 
 void App::request_exit() {
@@ -228,7 +186,7 @@ void App::handle_events() {
     gamepad_->update(*input_);
 }
 
-void App::update(double dt) {
+void App::update() {
     // Snapshot the match state BEFORE ticking so we can detect
     // edge transitions (a hit landing this frame, the phase
     // flipping to MatchOver). M14 haptics hooks off these
@@ -290,7 +248,7 @@ void App::update(double dt) {
     // stop the match from advancing so the player can take
     // their time deciding.
     if (match_ && menu_ && !menu_->blocks_simulation()) {
-        match_->update(*input_, dt);
+        match_->update(*input_);
     }
 
     // M14 haptics: route game events to the controller. The
@@ -334,12 +292,17 @@ void App::update(double dt) {
     }
 
     if (settings_dirty_) {
-        last_settings_flush_ += dt;
-        if (last_settings_flush_ > 1.0) {
+        if (++settings_flush_ticks_ >= config::kTargetFps) {
             flush_settings();
-            last_settings_flush_ = 0.0;
+            settings_flush_ticks_ = 0;
         }
     }
+
+    // Input may be polled on several render frames before the next fixed
+    // simulation tick. Consume edges here, not during event polling, so short
+    // key/button presses survive until this tick has seen them.
+    input_->consume_edges();
+    gamepad_->consume_edges();
 }
 
 void App::render() {
@@ -689,6 +652,7 @@ void App::reset_match() {
 void App::flush_settings() {
     save_settings_to_file(default_settings_path(), settings_);
     settings_dirty_ = false;
+    settings_flush_ticks_ = 0;
 }
 
 void App::shutdown() {

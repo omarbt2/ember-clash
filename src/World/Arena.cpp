@@ -6,6 +6,8 @@
 #include "Graphics/Renderer.h"
 
 #include <algorithm>
+#include <cmath>
+#include <limits>
 
 namespace ember {
 
@@ -65,7 +67,12 @@ void Arena::reset(Id id) {
             break;
     }
 
-    death_zone_y_ = H + 200.0f;
+    blast_zone_ = BlastZone{
+        /*left=*/-170.0f,
+        /*right=*/W + 170.0f,
+        /*top=*/-180.0f,
+        /*bottom=*/H + 200.0f,
+    };
     spawn_y_ = floor_top;
 }
 
@@ -74,13 +81,10 @@ float Arena::spawn_x(int player_index) const {
 }
 
 bool Arena::is_out_of_bounds(const Aabb& body) const {
-    const float width = static_cast<float>(config::kRenderWidth);
-    constexpr float side_margin = 170.0f;
-    constexpr float top_margin = 180.0f;
-    return body.x + body.w < -side_margin
-        || body.x > width + side_margin
-        || body.y + body.h < -top_margin
-        || body.y > death_zone_y_;
+    return body.right() < blast_zone_.left
+        || body.x > blast_zone_.right
+        || body.bottom() < blast_zone_.top
+        || body.y > blast_zone_.bottom;
 }
 
 bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
@@ -133,6 +137,49 @@ bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
         }
     }
 
+    return grounded;
+}
+
+
+bool Arena::move_and_resolve(Aabb& body, Vec2& velocity) const {
+    constexpr double kMaxSubstepDistance = 16.0;
+    const double distance = std::hypot(velocity.x, velocity.y);
+    if (!std::isfinite(distance)) {
+        // Invalid simulation velocity must not poison positions or turn the
+        // substep count conversion into undefined behaviour.
+        velocity = Vec2{0.0, 0.0};
+        return resolve_collision(body, velocity);
+    }
+
+    const double required_steps = std::max(
+        1.0, std::ceil(distance / kMaxSubstepDistance));
+    if (required_steps > static_cast<double>(std::numeric_limits<int>::max())) {
+        velocity = Vec2{0.0, 0.0};
+        return resolve_collision(body, velocity);
+    }
+    const int steps = static_cast<int>(required_steps);
+    double step_x = velocity.x / static_cast<double>(steps);
+    double step_y = velocity.y / static_cast<double>(steps);
+    bool grounded = false;
+
+    for (int i = 0; i < steps; ++i) {
+        body.x += static_cast<float>(step_x);
+        body.y += static_cast<float>(step_y);
+
+        Vec2 step_velocity{step_x, step_y};
+        grounded = resolve_collision(body, step_velocity) || grounded;
+
+        // Once an axis collides, stop advancing that component during the
+        // remaining substeps; the unobstructed axis may still move.
+        if (step_x != 0.0 && step_velocity.x == 0.0) {
+            velocity.x = 0.0;
+            step_x = 0.0;
+        }
+        if (step_y != 0.0 && step_velocity.y == 0.0) {
+            velocity.y = 0.0;
+            step_y = 0.0;
+        }
+    }
     return grounded;
 }
 

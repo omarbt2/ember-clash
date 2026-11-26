@@ -1,5 +1,6 @@
 #pragma once
 
+#include "Core/FixedStep.h"
 #include "Core/Settings.h"
 
 #include <memory>
@@ -39,10 +40,12 @@ public:
     // intentionally not used on the web - browsers cannot block.
     int run();
 
-    // Single per-tick step: handle_events + update + render. The argument
-    // is the desired frame delta in seconds; the Emscripten adapter passes
-    // the desired fixed step, the desktop run() uses Clock::delta_seconds().
-    void step(double dt);
+    // Legacy per-render-frame entry point; uses the shared fixed-step path.
+    void step(double frame_dt);
+
+    // Poll input once, advance zero or more fixed 60 Hz simulation ticks,
+    // then render once. Desktop and Web use this same path.
+    void step_frame(double frame_dt);
 
     // Politely request the desktop loop to exit at the next iteration.
     // (No-op for the Emscripten adapter; the web page simply goes away.)
@@ -51,7 +54,7 @@ public:
 private:
     void shutdown();
     void handle_events();
-    void update(double dt);
+    void update();
     void render();
 
     // ---- M12 wiring -----------------------------------------------------
@@ -85,26 +88,12 @@ private:
     bool                          settings_dirty_{false};
     bool                          local_two_player_{false};
     bool                          free_training_{false};
-    double                        last_settings_flush_{0.0};
+    int                           settings_flush_ticks_{0};
 
     bool                          sdl_initialized_{false};
     bool                          running_{false};
-    // P17: fixed-timestep accumulator. The simulation now runs at
-    // exactly config::kTargetFps (60 Hz) regardless of how fast the
-    // desktop loop spins. The previous "one update per render frame"
-    // code made the game feel hyper-fast on a 144 Hz monitor (and
-    // disgustingly slow on a 30 Hz one) - every per-tick constant in
-    // PhysicsConfig.h and CombatConfig.h assumes 60 Hz, so the only
-    // way to honour that contract on arbitrary hardware is to cap
-    // the simulation rate.
-    double                        sim_accumulator_{0.0};
-    // Hard cap on the number of catch-up sim ticks per render frame.
-    // If the desktop stalled for 250 ms (focus loss, breakpoint, etc.)
-    // we do not want to run 15 sim ticks in one go and "fast forward"
-    // the game state. Three ticks is enough to absorb a single missed
-    // frame; the rest of the wall time is dropped (the menu re-syncs
-    // when the user clicks back in).
-    static constexpr int          kMaxSimTicksPerFrame = 3;
+    // Shared fixed-step clock used by both desktop and browser adapters.
+    FixedStepAccumulator sim_clock_{};
 
     // P17 camera state. The previous build had no camera: the entire
     // 1280x720 stage was letterboxed into the window so the 96x128

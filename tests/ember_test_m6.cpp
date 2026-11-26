@@ -44,10 +44,6 @@ int g_failed = 0;
 #define PASS(name)  std::printf("  %-60s PASS\n", name)
 #define SCENARIO(name) std::printf("[%s] %s\n", id, name)
 
-bool pixel_non_transparent(const ember::Sprite& s, int x, int y) {
-    return s.index_at(x, y) != ember::Sprite::Index::Transparent;
-}
-
 } // namespace
 
 int main() {

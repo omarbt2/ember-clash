@@ -11,8 +11,9 @@
 #include "Input/InputManager.h"
 #include "UI/Hud.h"
 
+#include <bit>
 #include <cmath>
-#include <cstdlib>
+#include <limits>
 
 namespace ember {
 
@@ -80,18 +81,29 @@ Vec2 aabb_center(const Aabb& a) {
     return Vec2{ a.x + a.w * 0.5f, a.y + a.h * 0.5f };
 }
 
-// M6-C: deterministic shake offset. std::rand seeded in main()'s App
-// startup so the shake is the same across runs in a given build. Returns
-// a value in [-mag, +mag].
-float shake_offset_1d(float mag) {
-    const float r = static_cast<float>(std::rand()) / static_cast<float>(RAND_MAX);  // [0, 1]
-    return (r * 2.0f - 1.0f) * mag;
+// Per-match xorshift32 keeps presentation randomness deterministic and
+// isolated: two simultaneous matches must not consume one shared process RNG.
+std::uint32_t next_shake_random(std::uint32_t& state) {
+    // xorshift32 has an absorbing zero state; keep the generator non-zero.
+    if (state == 0) state = 0x6D2B79F5u;
+    std::uint32_t value = state;
+    value ^= value << 13;
+    value ^= value >> 17;
+    value ^= value << 5;
+    state = value;
+    return value;
+}
+
+float shake_offset_1d(float magnitude, std::uint32_t& state) {
+    const double unit = static_cast<double>(next_shake_random(state))
+                      / static_cast<double>(std::numeric_limits<std::uint32_t>::max());
+    return static_cast<float>((unit * 2.0 - 1.0) * magnitude);
 }
 
 } // namespace
 
 Match::Match()
-    : respawn_timer_{ -1.0, -1.0 } {
+    : respawn_timer_{ -1, -1 } {
     reset();
     // M4 default: P1 is human-controlled, P2 is the bot. The future
     // difficulty-select screen will swap this; the harness can override it
@@ -105,17 +117,22 @@ void Match::reset() {
     arena_.reset(arena_id_);
     for (int i = 0; i < kFighterCount; ++i) {
         fighters_[i] = std::make_unique<Fighter>(i, arena_);
-        respawn_timer_[i] = -1.0;
+        respawn_timer_[i] = -1;
     }
     // AI controllers are not owned by the fighters; reset their internal
     // state but keep them attached so a rematch keeps the same difficulty.
     for (int i = 0; i < kFighterCount; ++i) {
         if (ai_[i]) ai_[i]->reset_for_test();
     }
-    ko_banner_timer_ = 0.0;
+    ko_banner_ticks_ = 0;
     phase_           = Phase::Fighting;
     last_hit_        = HitEvent{0.0f, 0.0f, false};
     hit_spark_age_   = 0;
+    hit_stop_frames_ = 0;
+    ko_shake_frames_ = 0;
+    ko_shake_offset_x_ = 0.0f;
+    ko_shake_offset_y_ = 0.0f;
+    shake_rng_state_ = kDefaultShakeRngSeed;
     // P15: start the intro sequence (READY/FIGHT). The first frame
     // after reset shows "READY..."; the banner transitions to "FIGHT!"
     // after kIntroBannerReadyFrames and clears after
@@ -129,6 +146,10 @@ void Match::reset() {
 void Match::set_ai(int fighter_index, std::unique_ptr<AiController> controller) {
     if (fighter_index < 0 || fighter_index >= kFighterCount) return;
     ai_[fighter_index] = std::move(controller);
+}
+
+void Match::set_ai(int fighter_index, std::nullptr_t) {
+    set_ai(fighter_index, std::unique_ptr<AiController>{});
 }
 
 bool Match::is_ai(int fighter_index) const {
@@ -146,7 +167,7 @@ AiController* Match::ai_mutable(int fighter_index) {
     return ai_[fighter_index].get();
 }
 
-void Match::update(const InputManager& input, double dt) {
+void Match::update(const InputManager& input) {
     // M6-C: tick the post-KO shake at the TOP of update so the first
     // frame after the match-end transition (which sets ko_shake_frames_
     // to kKoShakeFrames) does not also decrement it. Without this, the
@@ -158,8 +179,8 @@ void Match::update(const InputManager& input, double dt) {
         const float t = static_cast<float>(ko_shake_frames_)
                       / static_cast<float>(combat::kKoShakeFrames);
         const float mag = combat::kKoShakeMagnitude * t;
-        ko_shake_offset_x_ = shake_offset_1d(mag);
-        ko_shake_offset_y_ = shake_offset_1d(mag);
+        ko_shake_offset_x_ = shake_offset_1d(mag, shake_rng_state_);
+        ko_shake_offset_y_ = shake_offset_1d(mag, shake_rng_state_);
     } else {
         ko_shake_offset_x_ = 0.0f;
         ko_shake_offset_y_ = 0.0f;
@@ -169,7 +190,7 @@ void Match::update(const InputManager& input, double dt) {
     // the KO banner timer tick. The rematch reset comes from App when the
     // player presses R.
     if (phase_ == Phase::MatchOver) {
-        ko_banner_timer_ += dt;
+        ++ko_banner_ticks_;
         if (hit_spark_age_ > 0) --hit_spark_age_;
         return;
     }
@@ -232,16 +253,19 @@ void Match::update(const InputManager& input, double dt) {
     //    transition so the stock decrement + respawn timer kick in in the
     //    same frame the fighter falls off. Done before Fighter::update so
     //    a fighter that was already past the death zone at frame start
-    //    gets the bookkeeping this frame instead of next.
+    //    gets the bookkeeping this frame instead of next. The KO tick is
+    //    the timer's start boundary, not one of its 30 elapsed wait ticks.
+    std::array<bool, kFighterCount> died_this_tick{};
     for (int i = 0; i < kFighterCount; ++i) {
         Fighter& f = *fighters_[i];
         if (!f.is_dead() && arena_.is_out_of_bounds(f.body())) {
             f.set_dead_for_test(true);
+            died_this_tick[static_cast<std::size_t>(i)] = true;
             if (f.stocks() > 0) {
                 f.set_stocks_for_test(f.stocks() - 1);
             }
             if (f.stocks() > 0) {
-                respawn_timer_[i] = combat::kRespawnDelaySeconds;
+                respawn_timer_[i] = combat::kRespawnDelayTicks;
             }
         }
     }
@@ -258,7 +282,7 @@ void Match::update(const InputManager& input, double dt) {
         if (ai_[i]) {
             const int opp_idx = (i == 0) ? 1 : 0;
             const Fighter& opp = *fighters_[opp_idx];
-            ai_[i]->decide(self, opp, arena_, dt,
+            ai_[i]->decide(self, opp, arena_,
                            live_ticks_,
                            motion, combat);
         } else {
@@ -277,7 +301,7 @@ void Match::update(const InputManager& input, double dt) {
                 }
             }
         }
-        self.update(motion, combat, arena_, dt);
+        self.update(motion, combat, arena_);
     }
 
     // 3) Resolve hits: for each ordered pair (attacker, defender) where the
@@ -314,13 +338,13 @@ void Match::update(const InputManager& input, double dt) {
     //    fighter's stocks have hit 0 - they stay off-stage and the match
     //    ends.
     for (int i = 0; i < kFighterCount; ++i) {
-        if (respawn_timer_[i] < 0.0) continue;
-        respawn_timer_[i] -= dt;
-        if (respawn_timer_[i] <= 0.0) {
-            respawn_timer_[i] = -1.0;
+        if (died_this_tick[static_cast<std::size_t>(i)]) continue;
+        if (respawn_timer_[i] < 0) continue;
+        if (--respawn_timer_[i] <= 0) {
+            respawn_timer_[i] = -1;
             fighters_[i]->respawn(arena_);
-            fighters_[i]->set_respawn_invuln_seconds(
-                combat::kRespawnInvulnSeconds);
+            fighters_[i]->set_respawn_invuln_ticks(
+                combat::kRespawnInvulnTicks);
         }
     }
 
@@ -335,7 +359,7 @@ void Match::update(const InputManager& input, double dt) {
     }
     if (any_out) {
         phase_           = Phase::MatchOver;
-        ko_banner_timer_ = 0.0;
+        ko_banner_ticks_ = 0;
         // M6-C: arm the post-KO shake. The actual offset is set
         // immediately to a fresh random value at full magnitude, then
         // ticked at the top of subsequent updates. We initialize the
@@ -344,8 +368,8 @@ void Match::update(const InputManager& input, double dt) {
         // than the zero default.
         ko_shake_frames_ = combat::kKoShakeFrames;
         const float mag = combat::kKoShakeMagnitude;
-        ko_shake_offset_x_ = shake_offset_1d(mag);
-        ko_shake_offset_y_ = shake_offset_1d(mag);
+        ko_shake_offset_x_ = shake_offset_1d(mag, shake_rng_state_);
+        ko_shake_offset_y_ = shake_offset_1d(mag, shake_rng_state_);
     }
 
     // 6) Hit-spark aging (the normal, non-frozen tick). The shake is
@@ -393,171 +417,161 @@ const Fighter& Match::fighter(int index) const {
 }
 
 // --------------------------------------------------------------------
-// M11: deterministic state fingerprint.
-//
-// Two Matches driven with identical inputs and identical AI seeds
-// MUST produce identical state_hash() values on every tick. We use
-// FNV-1a 64-bit (the standard xorshift-friendly variant) and fold
-// in the raw bytes of every field that affects simulation output.
-//
-// We hash:
-//   - arena (which is currently static, but we fold it in for safety
-//     so a future arena-variant can change the hash too);
-//   - per-fighter: body (x,y,w,h as int32 for cross-platform safety -
-//     we don't hash the float bit pattern, since two compilers could
-//     legitimately produce different bit patterns for the same value),
-//     velocity (int32 of the cast), grounded, dead, damage_percent,
-//     stocks, facing, jumps_remaining, state enum, current_attack_id,
-//     attack_frame, attack_has_hit (folded as 0/1 so we don't have to
-//     define its storage), hitstun_frames, invuln_frames;
-//   - match: phase, ko_banner_timer (as int32 of the cast - dt
-//     accumulation is deterministic at 1/60, but a future variable-dt
-//     build could still produce a different but consistent hash);
-//   - respawn timers (per fighter, int32 of the cast);
-//   - hit-spark: age + last_hit_ (x, y as int32, valid as 0/1);
-//   - hit-stop: frames remaining;
-//   - ko-shake: frames remaining + offset x,y as int32.
-//
-// We do NOT hash: AI RNG state (it's an internal state, not a
-// simulation output - two bots with the same seed will make the same
-// decisions regardless of internal RNG state representation), or
-// display-only state (renderer view offset, UI strings).
-//
-// The contract this function provides is: same inputs + same AI
-// seed -> same hash. The M11 test harness verifies the contract.
-// The future M10 online implementation will exchange this hash
-// between peers to detect desync.
+// M11: simulation-state fingerprint. This folds exact floating-point bits,
+// every fighter resource/timer that can affect later ticks, AI runtime and
+// tuning state, training playback, and match-flow timers. It is a desync
+// diagnostic for identical builds/configurations; it does not promise
+// cross-platform floating-point determinism.
 // --------------------------------------------------------------------
 std::uint64_t Match::state_hash() const {
-    // FNV-1a 64-bit constants.
+    static_assert(sizeof(float) == sizeof(std::uint32_t));
+    static_assert(sizeof(double) == sizeof(std::uint64_t));
+    static_assert(std::numeric_limits<float>::is_iec559);
+    static_assert(std::numeric_limits<double>::is_iec559);
+
+    // FNV-1a 64-bit. Floating-point values are folded by their exact IEEE-754
+    // representation; numeric casts would erase fractional movement and can
+    // hide a desync until it becomes visually obvious.
     constexpr std::uint64_t kFnvOffset = 0xcbf29ce484222325ULL;
     constexpr std::uint64_t kFnvPrime  = 0x100000001b3ULL;
     std::uint64_t h = kFnvOffset;
 
-    // Helper: fold a 32-bit value into the hash.
-    auto mix32 = [&](std::uint32_t v) {
-        for (int i = 0; i < 4; ++i) {
-            h ^= (v >> (i * 8)) & 0xFFu;
+    auto mix32 = [&](std::uint32_t value) {
+        for (int byte = 0; byte < 4; ++byte) {
+            h ^= (value >> (byte * 8)) & 0xFFu;
             h *= kFnvPrime;
         }
     };
-    // Helper: fold a float (as int32) into the hash. We cast the
-    // float to int32 first so that the bit pattern is the float's
-    // value, not its raw bits. Two compilers must agree on the cast
-    // for the same float value to produce the same int32; the C++
-    // standard guarantees that for finite values representable in
-    // both, so this is portable enough for our use.
-    auto mix_f32 = [&](float f) {
-        std::int32_t bits = static_cast<std::int32_t>(f);
-        mix32(static_cast<std::uint32_t>(bits));
+    auto mix64 = [&](std::uint64_t value) {
+        mix32(static_cast<std::uint32_t>(value));
+        mix32(static_cast<std::uint32_t>(value >> 32));
     };
-    // Helper: fold a double (as int64) into the hash. Split into two
-    // 32-bit folds so we don't lose entropy.
-    auto mix_f64 = [&](double d) {
-        std::int64_t bits = static_cast<std::int64_t>(d);
-        mix32(static_cast<std::uint32_t>(bits & 0xFFFFFFFFu));
-        mix32(static_cast<std::uint32_t>(
-                 (static_cast<std::uint64_t>(bits) >> 32) & 0xFFFFFFFFu));
+    auto mix_f32 = [&](float value) {
+        mix32(std::bit_cast<std::uint32_t>(value));
     };
-    // Helper: fold a Vec2 component (double) as a 32-bit int. The
-    // physics store velocity as double, but the values are small
-    // enough that int32 captures them faithfully. Avoids the
-    // double->float narrowing warning C4244.
-    auto mix_dbl_as_i32 = [&](double d) {
-        std::int32_t bits = static_cast<std::int32_t>(d);
-        mix32(static_cast<std::uint32_t>(bits));
+    auto mix_f64 = [&](double value) {
+        mix64(std::bit_cast<std::uint64_t>(value));
     };
+    auto mix_bool = [&](bool value) { mix32(value ? 1u : 0u); };
 
     // --- Arena data ---
     mix32(static_cast<std::uint32_t>(arena_.id()));
-    for (const Platform& p : arena_.platforms()) {
-        mix_f32(p.aabb.x); mix_f32(p.aabb.y);
-        mix_f32(p.aabb.w); mix_f32(p.aabb.h);
+    for (const Platform& platform : arena_.platforms()) {
+        mix_f32(platform.aabb.x);
+        mix_f32(platform.aabb.y);
+        mix_f32(platform.aabb.w);
+        mix_f32(platform.aabb.h);
     }
-    mix_f32(arena_.death_zone_y());
+    mix_f32(arena_.blast_zone().left);
+    mix_f32(arena_.blast_zone().right);
+    mix_f32(arena_.blast_zone().top);
+    mix_f32(arena_.blast_zone().bottom);
     mix_f32(arena_.spawn_x(0));
     mix_f32(arena_.spawn_x(1));
     mix_f32(arena_.spawn_y());
 
-    // --- Per-fighter state ---
+    // --- All fighter state that can affect a later simulation tick ---
     for (int i = 0; i < kFighterCount; ++i) {
         const Fighter& f = *fighters_[i];
-        // Body AABB.
-        mix_f32(f.body().x); mix_f32(f.body().y);
-        mix_f32(f.body().w); mix_f32(f.body().h);
-        // Velocity (Vec2 is double; cast to int32 to fit the
-        // single-32-bit fold + avoid the float-narrowing warning).
-        mix_dbl_as_i32(f.velocity().x);
-        mix_dbl_as_i32(f.velocity().y);
-        // Booleans as 0/1.
-        mix32(f.is_grounded() ? 1u : 0u);
-        mix32(f.is_dead()     ? 1u : 0u);
-        // Integer state.
+        const Aabb& body = f.body();
+        mix_f32(body.x);
+        mix_f32(body.y);
+        mix_f32(body.w);
+        mix_f32(body.h);
+        mix_f64(f.velocity().x);
+        mix_f64(f.velocity().y);
+        mix_bool(f.is_grounded());
+        mix_bool(f.is_dead());
         mix32(static_cast<std::uint32_t>(f.player_index()));
         mix32(static_cast<std::uint32_t>(f.damage_percent()));
         mix32(static_cast<std::uint32_t>(f.stocks()));
         mix32(static_cast<std::uint32_t>(f.facing()));
         mix32(static_cast<std::uint32_t>(f.jumps_remaining()));
+        mix32(static_cast<std::uint32_t>(f.jump_buffer_ticks()));
+        mix32(static_cast<std::uint32_t>(f.coyote_ticks()));
         mix32(static_cast<std::uint32_t>(f.state()));
         mix32(static_cast<std::uint32_t>(f.current_attack_id()));
         mix32(static_cast<std::uint32_t>(f.attack_frame()));
+        mix_bool(f.attack_has_hit());
         mix32(static_cast<std::uint32_t>(f.hitstun_frames()));
         mix32(static_cast<std::uint32_t>(f.invuln_frames()));
+        mix32(static_cast<std::uint32_t>(f.shield()));
+        mix32(static_cast<std::uint32_t>(f.guard_frames()));
+        mix32(static_cast<std::uint32_t>(f.dodge_frame()));
+        mix32(static_cast<std::uint32_t>(f.dodge_cooldown()));
+        mix32(static_cast<std::uint32_t>(f.dodge_direction()));
+        mix32(static_cast<std::uint32_t>(f.surge_meter()));
+        mix32(static_cast<std::uint32_t>(f.surge_frames()));
+        mix32(static_cast<std::uint32_t>(f.parry_flash()));
+        mix_bool(f.up_special_used());
+        mix_bool(f.air_dodge_used());
+    }
+
+    // --- AI controller state and tuning ---
+    for (int i = 0; i < kFighterCount; ++i) {
+        const AiController* controller = ai_[i].get();
+        mix_bool(controller != nullptr);
+        if (!controller) continue;
+
+        mix32(static_cast<std::uint32_t>(controller->state()));
+        mix32(static_cast<std::uint32_t>(controller->state_ticks()));
+        mix32(static_cast<std::uint32_t>(controller->last_attack_tick()));
+        mix32(controller->rng_state());
+        mix_bool(controller->skip_grace_for_test());
+
+        const ai::Difficulty& difficulty = controller->difficulty();
+        mix32(static_cast<std::uint32_t>(difficulty.reaction_delay_ticks));
+        mix32(static_cast<std::uint32_t>(difficulty.attack_frequency));
+        mix32(static_cast<std::uint32_t>(difficulty.recovery_priority));
+        mix32(static_cast<std::uint32_t>(difficulty.defensive_threshold_percent));
+        mix32(static_cast<std::uint32_t>(difficulty.jump_aggression));
+        mix32(difficulty.seed);
     }
 
     // --- Training recording / playback state ---
     mix32(static_cast<std::uint32_t>(training_recorder_.size()));
     mix32(static_cast<std::uint32_t>(training_recorder_.cursor()));
-    mix32(training_recorder_.recording() ? 1u : 0u);
-    mix32(training_recorder_.playing() ? 1u : 0u);
-    mix32(training_recorder_.overflowed() ? 1u : 0u);
+    mix_bool(training_recorder_.recording());
+    mix_bool(training_recorder_.playing());
+    mix_bool(training_recorder_.overflowed());
     for (std::size_t i = 0; i < training_recorder_.size(); ++i) {
         const training::RecordedFrame* frame = training_recorder_.frame_at(i);
-        if (!frame) continue;
-        const PlayerIntent& m = frame->motion;
-        const CombatIntent& c = frame->combat;
-        mix32(m.move_left ? 1u : 0u); mix32(m.move_right ? 1u : 0u);
-        mix32(m.jump_pressed ? 1u : 0u); mix32(m.fast_fall_held ? 1u : 0u);
-        mix32(m.up_held ? 1u : 0u); mix32(m.run_held ? 1u : 0u);
-        mix32(c.jab_pressed ? 1u : 0u); mix32(c.ftilt_pressed ? 1u : 0u);
-        mix32(c.nair_pressed ? 1u : 0u); mix32(c.special_pressed ? 1u : 0u);
-        mix32(c.smash_held ? 1u : 0u); mix32(c.shield_held ? 1u : 0u);
-        mix32(c.dodge_pressed ? 1u : 0u); mix32(c.surge_pressed ? 1u : 0u);
+        if (!frame) {
+            mix32(0xFFFFFFFFu);
+            continue;
+        }
+        const PlayerIntent& motion = frame->motion;
+        const CombatIntent& combat = frame->combat;
+        mix_bool(motion.move_left);
+        mix_bool(motion.move_right);
+        mix_bool(motion.jump_pressed);
+        mix_bool(motion.fast_fall_held);
+        mix_bool(motion.up_held);
+        mix_bool(motion.run_held);
+        mix_bool(combat.jab_pressed);
+        mix_bool(combat.ftilt_pressed);
+        mix_bool(combat.nair_pressed);
+        mix_bool(combat.special_pressed);
+        mix_bool(combat.smash_held);
+        mix_bool(combat.shield_held);
+        mix_bool(combat.dodge_pressed);
+        mix_bool(combat.surge_pressed);
     }
 
-    // --- Match flow ---
+    // --- Match flow, timers, hit feedback and simulation-age counters ---
     mix32(static_cast<std::uint32_t>(phase_));
-    mix_f64(ko_banner_timer_);
-
-    // --- P15 intro sequence ---
-    // match_startup_ticks_ is sim-affecting (controls when AI
-    // starts committing, when the banner clears, when the
-    // "live" state begins). intro_banner_state_ is purely a
-    // display field derived from it; folding both is cheap
-    // and keeps the hash self-documenting. live_ticks_ is
-    // the monotonic live-play age counter used by the AI
-    // grace gate and the post-attack cooldown, so it is
-    // also sim-affecting and must be folded in.
+    mix32(static_cast<std::uint32_t>(ko_banner_ticks_));
     mix32(static_cast<std::uint32_t>(match_startup_ticks_));
     mix32(static_cast<std::uint32_t>(intro_banner_state_));
     mix32(static_cast<std::uint32_t>(live_ticks_));
-
-    // --- Per-fighter respawn timers (seconds) ---
-    for (int i = 0; i < kFighterCount; ++i) {
-        mix_f64(respawn_timer_[i]);
-    }
-
-    // --- Hit-spark ---
+    for (int timer : respawn_timer_) mix32(static_cast<std::uint32_t>(timer));
     mix32(static_cast<std::uint32_t>(hit_spark_age_));
     mix_f32(last_hit_.x);
     mix_f32(last_hit_.y);
-    mix32(last_hit_.valid ? 1u : 0u);
-
-    // --- Hit-stop ---
+    mix_bool(last_hit_.valid);
     mix32(static_cast<std::uint32_t>(hit_stop_frames_));
-
-    // --- KO shake ---
     mix32(static_cast<std::uint32_t>(ko_shake_frames_));
+    mix32(shake_rng_state_);
     mix_f32(ko_shake_offset_x_);
     mix_f32(ko_shake_offset_y_);
 

@@ -16,7 +16,7 @@ class Fighter;
 // Deterministic finite-state-machine AI driver.
 //
 // One AiController owns the decision logic for a single fighter. Each
-// Match tick the Match calls decide(self, opponent, arena, dt) and uses
+// Match tick the Match calls decide(self, opponent, arena) and uses
 // the returned intents in place of InputMap::sample(). The controller
 // holds the FSM, the difficulty knobs, and an xorshift32 RNG for the
 // "die rolls" the FSM needs (attack commit, double-jump, etc.).
@@ -47,16 +47,11 @@ public:
 
     // One decision. The Match calls this per AI-controlled fighter per tick.
     // The returned intents feed Fighter::update exactly like InputMap's
-    // output does for a human. dt is in seconds and lets the FSM scale
-    // behaviour by tick rate. match_startup_ticks is the value of
-    // Match::match_startup_ticks() for the current frame; the controller
-    // uses it to honor the post-FIGHT startup grace window (during which
-    // the bot does not commit to an attack) without needing a back-pointer
-    // to the Match object.
+    // output does for a human. Behaviour windows are integer simulation
+    // ticks; no variable-delta time enters the AI state machine.
     void decide(const Fighter& self,
                 const Fighter& opponent,
                 const Arena& arena,
-                double dt,
                 int    match_startup_ticks,
                 PlayerIntent& out_motion,
                 CombatIntent& out_combat);
@@ -67,11 +62,20 @@ public:
     State            state()        const { return state_; }
     int              state_ticks()  const { return state_ticks_; }
     std::uint32_t    rng_state()    const { return rng_; }
+    int              last_attack_tick() const { return last_attack_tick_; }
+    bool             skip_grace_for_test() const { return force_skip_grace_for_test_; }
     const ai::Difficulty& difficulty() const { return difficulty_; }
 
     // Test-only: reset the controller to its initial state (keeps the
     // difficulty knobs). Used between headless test cases.
     void reset_for_test() { state_ = State::Idle; state_ticks_ = 0; rng_ = difficulty_.seed; last_attack_tick_ = -1; }
+    void set_runtime_state_for_test(State state, int ticks, int last_attack_tick,
+                                    std::uint32_t rng_state) {
+        state_ = state;
+        state_ticks_ = ticks;
+        last_attack_tick_ = last_attack_tick;
+        rng_ = rng_state;
+    }
 
     // P15: test-only bypass. The post-FIGHT startup grace is a UX
     // guarantee for the player; tests that drive the AI in a tight

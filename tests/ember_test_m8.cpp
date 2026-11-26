@@ -3,14 +3,14 @@
 //
 // Purpose
 //   The M8 refactor pulled the per-tick body out of App::run() into a new
-//   public App::step(double dt), and added App::request_exit(). The whole
+//   public App::step(double frame_dt), and added App::request_exit(). The whole
 //   point was to let the Emscripten entry point drive the loop without
 //   duplicating any gameplay logic.
 //
 // What this test guards against
 //   1. App::step(double) accidentally removed/changed in a future refactor
 //      (would silently break the Emscripten build - the web entry point
-//      calls app.step(dt) directly).
+//      calls app.step_frame(frame_dt) directly).
 //   2. App::request_exit() accidentally removed/changed (would silently
 //      break any future shutdown wiring on the web side).
 //   3. App::run() being non-const (a no-op check, but documents the
@@ -34,6 +34,11 @@ static_assert(std::is_same_v<decltype(&ember::App::step),
                              void (ember::App::*)(double)>,
               "App::step(double) signature changed - src/main_emscripten.cpp "
               "and the web build will break. Update both together.");
+
+static_assert(std::is_same_v<decltype(&ember::App::step_frame),
+                             void (ember::App::*)(double)>,
+              "App::step_frame(double) signature changed - desktop and web "
+              "adapters must share the fixed-step entry point.");
 
 static_assert(std::is_same_v<decltype(&ember::App::request_exit),
                              void (ember::App::*)()>,

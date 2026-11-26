@@ -1,7 +1,6 @@
 #pragma once
 
 #include "Core/Math.h"
-#include "Core/Config.h"
 #include "Gameplay/ArtConfig.h"
 #include "Gameplay/Attack.h"
 #include "Gameplay/Sprite.h"
@@ -48,6 +47,8 @@ public:
     int  stocks() const { return stocks_; }
     int  damage_percent() const { return damage_percent_; }
     int  jumps_remaining() const { return jumps_remaining_; }
+    int  jump_buffer_ticks() const { return jump_buffer_ticks_; }
+    int  coyote_ticks() const { return coyote_ticks_; }
     int  facing() const { return facing_; }                 // +1 or -1
     State state() const { return state_; }
     AttackId current_attack_id() const { return current_attack_id_; }
@@ -60,6 +61,7 @@ public:
     int  shield() const { return shield_; }
     int  dodge_frame() const { return dodge_frame_; }
     int  dodge_cooldown() const { return dodge_cooldown_; }
+    int  dodge_direction() const { return dodge_dir_; }
     bool dodge_invulnerable() const {
         return state_ == State::Dodge && dodge_frame_ >= combat::kDodgeInvulnStart
             && dodge_frame_ < combat::kDodgeInvulnEnd;
@@ -72,6 +74,8 @@ public:
     bool surge_active() const { return surge_frames_ > 0; }
     bool attack_has_hit() const { return attack_has_hit_; }
     int  parry_flash() const { return parry_flash_; }
+    bool up_special_used() const { return up_special_used_; }
+    bool air_dodge_used() const { return air_dodge_used_; }
     void mark_attack_hit() { attack_has_hit_ = true; }
     void add_surge(int amount);
     void stun_for(int frames);   // generic stun (parried attacker, shield break)
@@ -94,7 +98,7 @@ public:
     // Applies the post-respawn invulnerability window. Match calls this right
     // after a respawn so the freshly-spawned fighter can't be combo'd
     // immediately by an opponent camping the spawn platform.
-    void set_respawn_invuln_seconds(double seconds);
+    void set_respawn_invuln_ticks(int ticks);
 
     // Wipes per-match progression (stocks, damage, attack/hitstun state) so
     // Match::reset() can start a rematch without touching the body/position
@@ -117,15 +121,31 @@ public:
     void set_dead_for_test(bool dead)  { dead_ = dead; }
     void set_stocks_for_test(int stocks) { stocks_ = stocks; }
     void set_invuln_frames_for_test(int f) { invuln_frames_ = f; }
+    void set_jump_buffer_ticks_for_test(int ticks) { jump_buffer_ticks_ = ticks; }
+    void set_coyote_ticks_for_test(int ticks) { coyote_ticks_ = ticks; }
+    void set_attack_has_hit_for_test(bool hit) { attack_has_hit_ = hit; }
+    void set_guard_state_for_test(int shield, int frames) {
+        shield_ = shield;
+        guard_frames_ = frames;
+    }
+    void set_dodge_state_for_test(int frame, int cooldown, int direction) {
+        dodge_frame_ = frame;
+        dodge_cooldown_ = cooldown;
+        dodge_dir_ = direction;
+    }
+    void set_surge_state_for_test(int meter, int frames) {
+        surge_meter_ = meter;
+        surge_frames_ = frames;
+    }
+    void set_parry_flash_for_test(int frames) { parry_flash_ = frames; }
+    void set_up_special_used_for_test(bool used) { up_special_used_ = used; }
+    void set_air_dodge_used_for_test(bool used) { air_dodge_used_ = used; }
 
-    // One simulation tick. motion_intent drives walk / jump / fast-fall;
-    // combat_intent drives attack initiation. Both are sampled by InputMap
-    // and are platform-agnostic. dt is passed through to the motion step
-    // (in seconds) and is also used to scale attack-frame timing in Match.
+    // One fixed simulation tick. Motion/combat intents are platform-agnostic;
+    // all timers and tuning values advance exactly once per call.
     void update(const PlayerIntent& motion_intent,
                 const CombatIntent& combat_intent,
-                const Arena& arena,
-                double dt);
+                const Arena& arena);
 
     // Applies a hit from an external attacker. Sets damage, knockback
     // velocity, hitstun, and transitions to Hitstun. No effect on a dead
@@ -156,7 +176,6 @@ private:
     bool  dead_{false};
     int   damage_percent_{0};
     int   facing_{1};
-    config::Color color_{};
 
     // M6-B: per-fighter procedural sprite with an animation strip.
     // Built from art::kPalette{P1,P2} at construction via

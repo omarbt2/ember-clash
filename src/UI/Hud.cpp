@@ -20,7 +20,6 @@ namespace {
 // renderer's letterboxing handles window vs logical size.
 
 constexpr int kMargin         = 16;
-constexpr int kCardHeight     = 56;
 constexpr int kCardWidth      = 220;
 constexpr int kStockPipW      = 22;
 constexpr int kStockPipH      = 10;
@@ -186,8 +185,8 @@ void Hud::draw_ko_banner(Renderer& renderer, const Match& match,
           static_cast<float>(band_h) },
         { 12, 12, 18, 255 });
 
-    const bool show_initial = match.ko_banner_timer_seconds()
-                            < combat::kKoBannerInitialSeconds;
+    const bool show_initial = match.ko_banner_timer_ticks()
+                            < combat::kKoBannerInitialTicks;
 
     // Static buffer so the pointer handed to draw_text_scaled stays valid
     // for the duration of the function. "P1 WINS - PRESS R" + null is 22

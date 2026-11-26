@@ -1,11 +1,13 @@
 #pragma once
 
+#include "Core/Config.h"
 #include "Gameplay/CombatConfig.h"
 #include "Gameplay/Fighter.h"
 #include "Gameplay/TrainingRecorder.h"
 #include "World/Arena.h"
 
 #include <array>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 
@@ -34,10 +36,9 @@ public:
     Match(const Match&)            = delete;
     Match& operator=(const Match&) = delete;
 
-    // One match tick. `input` provides keyboard state; dt is the elapsed
-    // seconds since the last update. Fighters with an attached AiController
-    // are driven by the AI instead of InputMap.
-    void update(const InputManager& input, double dt);
+    // One fixed simulation tick. All logical timers are integer tick counts;
+    // render-frame timing is handled only by App's fixed-step accumulator.
+    void update(const InputManager& input);
 
     // Draws the arena + fighters + M5 HUD in render-space coordinates.
     void render(Renderer& renderer) const;
@@ -51,6 +52,9 @@ public:
     // Per-fighter AI control. Setting a controller for an index makes that
     // fighter AI-driven; the default (no controller) means human-controlled.
     void set_ai(int fighter_index, std::unique_ptr<AiController> controller);
+    // Keeps the common detach call usable without requiring callers to
+    // include the complete AiController definition.
+    void set_ai(int fighter_index, std::nullptr_t);
     bool is_ai(int fighter_index) const;
 
     // P6 training slice: record and replay P1's platform-independent intents.
@@ -87,8 +91,12 @@ public:
 
     // M5 accessors for the HUD and tests.
     Phase phase() const { return phase_; }
-    // Seconds elapsed since the match ended. 0 while Fighting.
-    double ko_banner_timer_seconds() const { return ko_banner_timer_; }
+    // Integer simulation ticks since the match ended. 0 while Fighting.
+    int ko_banner_timer_ticks() const { return ko_banner_ticks_; }
+    int respawn_timer_ticks_for_test(int fighter_index) const {
+        if (fighter_index < 0 || fighter_index >= kFighterCount) return -1;
+        return respawn_timer_[fighter_index];
+    }
     // Position of the most recent hit (for the hit-spark HUD overlay).
     HitEvent last_hit_position_for_test() const { return last_hit_; }
 
@@ -131,18 +139,19 @@ public:
     // renderer's view offset.
     float ko_shake_offset_x() const { return ko_shake_offset_x_; }
     float ko_shake_offset_y() const { return ko_shake_offset_y_; }
+    std::uint32_t shake_rng_state_for_test() const { return shake_rng_state_; }
+    void set_shake_rng_state_for_test(std::uint32_t state) {
+        shake_rng_state_ = state == 0 ? kDefaultShakeRngSeed : state;
+    }
+    void set_hit_stop_frames_for_test(int frames) {
+        hit_stop_frames_ = frames > 0 ? frames : 0;
+    }
 
-    // M11: deterministic state fingerprint. A 64-bit FNV-1a hash of every
-    // field that affects simulation output: arena (deterministic, but
-    // folded in for safety), both fighters (position, velocity, damage,
-    // stocks, state, attack_id, attack_frame, invuln, hitstun, jumps,
-    // facing), match phase, respawn timers, ko_banner_timer, hit-spark
-    // age + position, hit-stop frames, ko-shake frames + offset. Two
-    // Matches driven with identical inputs and identical AI seeds MUST
-    // produce identical state_hash() values on every tick. This is the
-    // desync-detection primitive that a future online implementation
-    // (M10) would send over the wire; it is also what the M11 test
-    // harness uses to prove determinism.
+    // M11: simulation-state fingerprint. Folds exact IEEE-754 bit patterns
+    // plus fighter resources/timers, AI runtime + tuning + RNG, training
+    // playback, match flow and hit feedback state. Identical simulations
+    // within the same build/configuration should hash identically. This is a
+    // desync diagnostic, not a promise of cross-platform FP determinism.
     std::uint64_t state_hash() const;
 
     // Test-only convenience: respawn a specific fighter immediately and
@@ -151,10 +160,10 @@ public:
     // specific scenarios without waiting for natural deaths.
     void respawn_fighter_for_test(int fighter_index) {
         if (fighter_index < 0 || fighter_index >= kFighterCount) return;
-        respawn_timer_[fighter_index] = -1.0;
+        respawn_timer_[fighter_index] = -1;
         fighters_[fighter_index]->respawn(arena_);
-        fighters_[fighter_index]->set_respawn_invuln_seconds(
-            combat::kRespawnInvulnSeconds);
+        fighters_[fighter_index]->set_respawn_invuln_ticks(
+            combat::kRespawnInvulnTicks);
     }
 
     // P15: test-only convenience. Forces the intro sequence to end
@@ -175,18 +184,18 @@ public:
     }
 
 private:
+    static constexpr std::uint32_t kDefaultShakeRngSeed = 0x6D2B79F5u;
+
     Arena arena_;
     Arena::Id arena_id_{Arena::Id::TrainingRing};
     std::array<std::unique_ptr<Fighter>, kFighterCount> fighters_;
     std::array<std::unique_ptr<AiController>, kFighterCount> ai_;
     training::Recorder training_recorder_{};
 
-    // M5 match-flow state. Per-fighter respawn timers are stored in seconds
-    // (count down to 0) so the test harness can read them directly without
-    // doing frame-rate math. A negative value means "the fighter is alive
-    // and respawn timing isn't active."
-    std::array<double, kFighterCount> respawn_timer_;
-    double ko_banner_timer_{0.0};
+    // M5 match-flow timers are integer ticks. A negative respawn value means
+    // the fighter is alive and no respawn is pending.
+    std::array<int, kFighterCount> respawn_timer_;
+    int ko_banner_ticks_{0};
     Phase  phase_{Phase::Fighting};
     HitEvent last_hit_{0.0f, 0.0f, false};
     int  hit_spark_age_{0};  // frames remaining for the active spark
@@ -223,6 +232,7 @@ private:
     int   ko_shake_frames_{0};     // > 0 means the shake is still playing
     float ko_shake_offset_x_{0.0f};// current shake offset, render pixels
     float ko_shake_offset_y_{0.0f};
+    std::uint32_t shake_rng_state_{kDefaultShakeRngSeed};
 };
 
 } // namespace ember

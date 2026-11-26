@@ -7,7 +7,7 @@
 | Owner | Project owner (omarbt2); drafted by Claude |
 | Depends on | - |
 | Related | all |
-| Revision date | 2026-11-24 |
+| Revision date | 2026-11-26 |
 | Open questions | See 27_DECISION_LOG.md |
 
 Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared constants are defined only in [00_SHARED_CONSTANTS.md](00_SHARED_CONSTANTS.md) and referenced as [SC-n].
@@ -18,7 +18,7 @@ Changing a value here requires updating `tools/check_rebirth_docs.py` expectatio
 
 | ID | Constant | Value | Status |
 |---|---|---|---|
-| SC-1 | Simulation rate | 60 ticks/s; 1 tick = 1 frame = 1/60 s; gameplay timers are integer ticks | CONFIRMED in code (`config::kTargetFps = 60`, accumulator in `App::run`); integer-tick timers PROPOSED (today several are `double` seconds) |
+| SC-1 | Simulation rate | 60 ticks/s; 1 tick = 1 frame = 1/60 s; gameplay timers are integer ticks | 60 Hz accumulator and dt-free simulation APIs implemented in local continuation work; integer-tick respawn/invulnerability/KO-banner timers implemented; D-001 still PROPOSED pending replay gate + owner approval |
 | SC-2 | Max fighters per match | 4 (`kMaxFighters`); code today: `Match::kFighterCount = 2` | PROPOSED |
 | SC-3 | Launch roster target / first-release roster | 8 fighters (long-term) / 4 fighters (first release, see 25) | PROPOSED |
 | SC-4 | Arena target / first-release arenas | 6 / 3 | PROPOSED |

@@ -43,40 +43,6 @@ void section(const char* name) {
     std::printf("\n=== %s ===\n", name);
 }
 
-// ---- Helpers -----------------------------------------------------------------
-// A no-op InputManager: we only need menu_* predicates, and we
-// inject menu up/down/confirm/cancel by setting one of the per-
-// predicate test-mode flags. (Real production calls use SDL keys.)
-//
-// Implementation: we use a tiny subclass that injects via a
-// singleton "next input" pattern. We do not touch the real
-// InputManager's internals (which would require a window).
-class FakeInput {
-public:
-    bool up   = false;
-    bool down = false;
-    bool left = false;
-    bool right= false;
-    bool confirm = false;
-    bool cancel  = false;
-    bool pause   = false;
-    bool any     = false;
-    void clear() { up = down = left = right = confirm = cancel = pause = any = false; }
-};
-
-FakeInput g_in;
-
-// ember::InputManager has a public menu_up()/menu_down()/etc. that
-// returns false by default. We can't override the predicates on a
-// real instance without an SDL window, so we drive the Menu
-// through its update() against a real InputManager (whose menu_*
-// always returns false in this build) and the Gamepad whose
-// pressed() / nav_*() we can drive via test seams.
-//
-// For the integration-level tests below we therefore drive the
-// Menu primarily through push_event() (the high-level state
-// machine) and through selected_index_for_test() / state()
-// introspection.
 
 } // namespace
 
@@ -517,7 +483,7 @@ int main() {
         constexpr int kTicks = 120;
         for (int i = 0; i < kTicks; ++i) {
             input.begin_frame_for_test();
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
         }
         const uint64_t h1 = m.state_hash();
         check(h1 != h0, "match state_hash changes after 120 ticks");
@@ -535,7 +501,7 @@ int main() {
         // same inputs + same tick count = same hash.
         for (int i = 0; i < kTicks; ++i) {
             input.begin_frame_for_test();
-            m.update(input, 1.0 / 60.0);
+            m.update(input);
         }
         const uint64_t h3 = m.state_hash();
         check(h3 == h1, "post-reset 120-tick hash == pre-reset 120-tick hash (deterministic rematch)");
