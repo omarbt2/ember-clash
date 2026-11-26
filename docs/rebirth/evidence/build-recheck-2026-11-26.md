@@ -125,3 +125,21 @@ After the build gate is reproducible, continue P0: compare full trees/ancestry f
 - No dedicated DaVinci `Resolve` integration is present; the catalogue entries containing the word `resolve` are unrelated helpers for GitHub/Notion/Canva threads or plugin-specific identifiers.
 - No subagent spawn/wait/list tools are available in this session. No parallel agent was claimed or launched.
 - No external art generation, paid provider operation, or asset purchase was started. D-004 remains open and the project has not passed its source/build baseline gate.
+
+## 8. Follow-up: exact upstream SDL source archive obtained (transfer still pending)
+
+A separate network-enabled browser runner reached the official SDL repository and downloaded the codeload archive for the pinned tag `release-3.2.10`. The GitHub tag page identifies the release commit as `877399b2b2cf21e67554ed9046410f268ce1d1b2` (the upstream page was inspected live). The downloaded archive was 16,108,858 bytes and its measured SHA-256 was:
+
+`8a6ddc3e70de897f7921da275ac71e375de89dad802aa2932649d1fea9068478`
+
+The archive's top-level layout was inspected and begins with `SDL-release-3.2.10/`. The hash is a measured transfer-integrity fingerprint, not a claim that SDL publishes this SHA as its official checksum.
+
+The archive could not yet be transferred into the local build container: its DNS/network remains unavailable, and the temporary transfer endpoint did not return a usable persistent download URL. Therefore the SDL archive is **not** included in this source commit, and the actual CMake configure/build/CTest remains blocked/unrun.
+
+Added `tools/build_with_verified_sdl.sh` as a deterministic handoff path. Once the exact archive is placed on the local machine, it checks the SHA-256 and archive layout, then uses CMake's `FETCHCONTENT_SOURCE_DIR_SDL3` override to build the exact pinned source offline. It does not change the SDL version or project source dependency declaration. Run:
+
+```bash
+tools/build_with_verified_sdl.sh /path/to/SDL-release-3.2.10.tar.gz build-sdl3-offline
+```
+
+This script has been reviewed for argument handling and strict hash verification, but has **not** been executed end-to-end because the archive transfer is still pending. It must not be described as a successful build.
