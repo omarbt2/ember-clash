@@ -8,7 +8,6 @@
 | Repository | `omarbt2/ember-clash` |
 | Local branch at audit | `reconstruction/rebirth-input-recovery` |
 | Code state audited | `1e3175a` |
-| Roadmap file commit | `d04b8a7` |
 | Technology | C++20 + SDL3 + CMake; original 2D platform fighter |
 
 
