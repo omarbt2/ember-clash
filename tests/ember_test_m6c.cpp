@@ -88,21 +88,6 @@ const char* g_scenario = nullptr;
         std::printf("\n[%s] %s\n", name, name);                                 \
     } while (0)
 
-inline void tick(ember::InputManager& input,
-                 ember::Match& match,
-                 int n = 1) {
-    for (int i = 0; i < n; ++i) {
-        // Per App::step, the order is:
-        //   1. InputManager::update()    -> snapshot previous_, drain events
-        //   2. Match::update(input)  -> reads input
-        // In the test seam, "snapshot previous_" is begin_frame_for_test().
-        // We must call it BEFORE setting this frame's keys, so that
-        // pressed() = current && !previous is true on the frame a key
-        // first appears.
-        input.begin_frame_for_test();
-        match.update(input);
-    }
-}
 
 } // namespace
 
