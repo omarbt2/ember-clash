@@ -143,3 +143,14 @@ tools/build_with_verified_sdl.sh /path/to/SDL-release-3.2.10.tar.gz build-sdl3-o
 ```
 
 This script has been reviewed for argument handling and strict hash verification, but has **not** been executed end-to-end because the archive transfer is still pending. It must not be described as a successful build.
+
+## 9. Offline bootstrap script validation (follow-up)
+
+The new `tools/build_with_verified_sdl.sh` was checked after adding it:
+
+- `bash -n tools/build_with_verified_sdl.sh` — PASS (shell syntax).
+- `python3 tools/check_rebirth_docs.py` — PASS, 62 Markdown files.
+- `python3 -m unittest discover -s tools/tests -v` — PASS, 7 tests.
+- Negative integrity test with a deliberately incorrect archive — PASS: the script exited `3` and reported an SDL3 SHA-256 mismatch before extraction or CMake.
+
+These checks validate the script's syntax and rejection path only. The expected-hash archive is still not present in this Linux runner; its successful configure/build/CTest path remains unexecuted.
