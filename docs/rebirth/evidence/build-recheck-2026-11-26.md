@@ -64,7 +64,7 @@ The recovered bundle contains `.github/workflows/ci.yml` with four jobs:
 
 `python3` YAML parsing with `yaml.BaseLoader` — PASS; all four job names were present.
 
-The GitHub content API returned HTTP 404 for `.github/workflows/ci.yml` on each of the three current remote refs (`master`, `rebirth/phase0`, and `reconstruction/rebirth-input-recovery`). The workflow in this bundle is therefore not verified as published on those remote refs. No successful Actions run for local commit `1e3175a` is established by this check.
+The GitHub content API returned HTTP 404 for `.github/workflows/ci.yml` on each of the three current remote refs (`master`, `rebirth/phase0`, and `reconstruction/rebirth-input-recovery`). The workflow in this bundle is therefore not verified as published on those remote refs. `fetch_commit_workflow_runs` was also checked for the three remote SHAs plus local `1e3175a` and bundle HEAD `42fe5ad`; it returned no PR-triggered workflow runs for any of them. That connector wrapper only returns PR-triggered runs and the first page, so this does not rule out other event types or historical runs outside its scope.
 
 ## 4. S0 — SDL3 Build Unblock
 
@@ -117,3 +117,11 @@ The strict standalone C++ test compile flags were `-std=c++20 -Wall -Wextra -Wpe
 `S0` remains `BLOCKED`. Resume only when an environment with working GitHub DNS/network or a separately supplied, provenance- and hash-verified SDL3 `release-3.2.10` source cache is available. Then rerun clean Release configure, complete build, and `ctest --output-on-failure` while preserving the pin. Do not substitute another SDL release, call isolated tests a full build, or claim CI green.
 
 After the build gate is reproducible, continue P0: compare full trees/ancestry for all remote refs, publish the entire recovered history to a new remote branch only after verifying the exact source tree and ancestry, then run GitHub Actions and open a review PR without merging.
+
+
+## 7. Tool availability and execution boundaries
+
+- `Flowork` is not present in the current connected tool catalogue.
+- No dedicated DaVinci `Resolve` integration is present; the catalogue entries containing the word `resolve` are unrelated helpers for GitHub/Notion/Canva threads or plugin-specific identifiers.
+- No subagent spawn/wait/list tools are available in this session. No parallel agent was claimed or launched.
+- No external art generation, paid provider operation, or asset purchase was started. D-004 remains open and the project has not passed its source/build baseline gate.
