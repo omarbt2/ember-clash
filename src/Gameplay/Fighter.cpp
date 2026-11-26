@@ -311,8 +311,13 @@ void Fighter::update(const PlayerIntent& motion_intent,
 
     // --- Motion ------------------------------------------------------------
     if (state_ == State::Idle) {
+        const bool drop_through = motion_intent.fast_fall_held
+            && motion_intent.jump_pressed && grounded_
+            && arena.supported_by_one_way(body_);
+        PlayerIntent effective_intent = motion_intent;
+        if (drop_through) effective_intent.jump_pressed = false;
         const MotionState in{velocity_, grounded_, jumps_remaining_, jump_buffer_ticks_, coyote_ticks_};
-        const MotionResult out = step_motion(in, motion_intent);
+        const MotionResult out = step_motion(in, effective_intent);
         velocity_        = out.velocity;
         jumps_remaining_ = out.jumps_remaining;
         jump_buffer_ticks_ = out.jump_buffer_ticks;
@@ -336,7 +341,10 @@ void Fighter::update(const PlayerIntent& motion_intent,
     // --- Integrate position + resolve collision ----------------------------
     // High-speed knockback is advanced in bounded substeps so a fighter
     // cannot tunnel through a platform in one large per-tick displacement.
-    grounded_ = arena.move_and_resolve(body_, velocity_);
+    const bool drop_through = state_ == State::Idle
+        && motion_intent.fast_fall_held && motion_intent.jump_pressed
+        && arena.supported_by_one_way(body_);
+    grounded_ = arena.move_and_resolve(body_, velocity_, drop_through);
     if (grounded_) { up_special_used_ = false; air_dodge_used_ = false; jumps_remaining_ = 2; }
     // M5 note: the death-zone check used to live here, but it needed to
     // happen BEFORE Fighter::update so Match could still decrement

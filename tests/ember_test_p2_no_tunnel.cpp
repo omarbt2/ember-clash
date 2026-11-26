@@ -63,6 +63,45 @@ int main() {
         assert(velocity.y == 0.0);
     }
 
+    // Elevated platforms are one-way: they catch a descending fighter,
+    // but do not block a fighter jumping upward through their underside.
+    {
+        const Platform& ledge = arena.platforms()[1];
+        Aabb falling{350.0f, ledge.aabb.y - 100.0f, 48.0f, 64.0f};
+        Vec2 down{0.0, 120.0};
+        assert(arena.move_and_resolve(falling, down));
+        assert(std::abs(falling.bottom() - ledge.aabb.y) < 1e-4f);
+        assert(down.y == 0.0);
+
+        Aabb rising{350.0f, ledge.aabb.bottom() + 2.0f - 64.0f, 48.0f, 64.0f};
+        Vec2 up{0.0, -40.0};
+        assert(!arena.move_and_resolve(rising, up));
+        assert(rising.bottom() < ledge.aabb.y);
+    }
+
+    // Down+jump drop-through ignores one-way platforms for the initiating
+    // tick only. On the next tick the body remains below the platform rather
+    // than being snapped back onto it; the solid main floor still collides.
+    {
+        const Platform& ledge = arena.platforms()[1];
+        Aabb body{350.0f, ledge.aabb.y - 64.0f, 48.0f, 64.0f};
+        assert(arena.supported_by_one_way(body));
+        Vec2 first_tick{0.0, 4.0};
+        assert(!arena.move_and_resolve(body, first_tick, true));
+        assert(body.bottom() > ledge.aabb.y);
+        assert(!arena.supported_by_one_way(body));
+
+        Vec2 second_tick{0.0, 4.0};
+        assert(!arena.move_and_resolve(body, second_tick));
+        assert(body.bottom() > ledge.aabb.y);
+
+        const float floor_top = arena.platforms().front().aabb.y;
+        Aabb above_floor{600.0f, floor_top - 80.0f, 48.0f, 64.0f};
+        Vec2 toward_floor{0.0, 40.0};
+        assert(arena.move_and_resolve(above_floor, toward_floor, true));
+        assert(std::abs(above_floor.bottom() - floor_top) < 1e-4f);
+    }
+
     // Invalid velocity is contained before it can poison an AABB or an
     // integer substep calculation.
     {

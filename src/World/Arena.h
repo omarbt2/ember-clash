@@ -13,6 +13,8 @@ class Renderer;
 // platforms simple (no slopes, no moving pieces) so we don't need more.
 struct Platform {
     Aabb aabb;
+    // One-way platforms can be landed on from above but never block ascent.
+    bool one_way{false};
 };
 
 // Four-sided out-of-bounds limits are arena data, not hard-coded inside the
@@ -57,11 +59,15 @@ public:
 
     // Resolves AABB-vs-platform overlap at the body's current position.
     // Mutates body and velocity; returns true if the body landed this step.
-    bool resolve_collision(Aabb& body, Vec2& velocity) const;
+    bool resolve_collision(Aabb& body, Vec2& velocity,
+                           bool drop_through_one_way = false) const;
     // Integrates one fixed-tick velocity using bounded substeps before each
     // collision pass. This prevents a fast hitstun/launch vector from crossing
     // a thin platform between two endpoint-only overlap checks.
-    bool move_and_resolve(Aabb& body, Vec2& velocity) const;
+    bool move_and_resolve(Aabb& body, Vec2& velocity,
+                          bool drop_through_one_way = false) const;
+    // True when the body is standing on a one-way platform (within tolerance).
+    bool supported_by_one_way(const Aabb& body) const;
     // Four-sided blast-zone test, evaluated by Match before fighter update.
     bool is_out_of_bounds(const Aabb& body) const;
 

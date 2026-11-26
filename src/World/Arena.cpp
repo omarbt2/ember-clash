@@ -23,9 +23,10 @@ void Arena::reset(Id id) {
     id_ = id;
     count_ = 0;
 
-    auto push = [&](float x, float y, float w, float h) {
+    auto push = [&](float x, float y, float w, float h, bool one_way = false) {
         if (count_ < kMaxPlatforms) {
-            data_[static_cast<std::size_t>(count_++)] = Platform{Aabb{x, y, w, h}};
+            data_[static_cast<std::size_t>(count_++)] =
+                Platform{Aabb{x, y, w, h}, one_way};
         }
     };
 
@@ -33,8 +34,8 @@ void Arena::reset(Id id) {
         case Id::TrainingRing:
             // Familiar flat floor with two elevated side platforms.
             push(0.0f, floor_top, W, H - floor_top);
-            push(280.0f, floor_top - 160.0f, 240.0f, thick);
-            push(W - 520.0f, floor_top - 160.0f, 240.0f, thick);
+            push(280.0f, floor_top - 160.0f, 240.0f, thick, true);
+            push(W - 520.0f, floor_top - 160.0f, 240.0f, thick, true);
             spawn_x_[0] = 220.0f;
             spawn_x_[1] = W - 284.0f;
             break;
@@ -42,26 +43,26 @@ void Arena::reset(Id id) {
             // A narrow main deck with a central furnace bridge and offset
             // side shelves; the outer gaps create meaningful edge pressure.
             push(150.0f, floor_top, W - 300.0f, H - floor_top);
-            push(450.0f, floor_top - 190.0f, 380.0f, thick);
-            push(255.0f, floor_top - 95.0f, 190.0f, thick);
-            push(W - 445.0f, floor_top - 95.0f, 190.0f, thick);
+            push(450.0f, floor_top - 190.0f, 380.0f, thick, true);
+            push(255.0f, floor_top - 95.0f, 190.0f, thick, true);
+            push(W - 445.0f, floor_top - 95.0f, 190.0f, thick, true);
             spawn_x_[0] = 295.0f;
             spawn_x_[1] = W - 343.0f;
             break;
         case Id::SkyTemple:
             // Three stepped platforms over a raised central sanctuary.
             push(130.0f, floor_top, W - 260.0f, H - floor_top);
-            push(235.0f, floor_top - 118.0f, 205.0f, thick);
-            push(520.0f, floor_top - 215.0f, 240.0f, thick);
-            push(W - 440.0f, floor_top - 118.0f, 205.0f, thick);
+            push(235.0f, floor_top - 118.0f, 205.0f, thick, true);
+            push(520.0f, floor_top - 215.0f, 240.0f, thick, true);
+            push(W - 440.0f, floor_top - 118.0f, 205.0f, thick, true);
             spawn_x_[0] = 275.0f;
             spawn_x_[1] = W - 323.0f;
             break;
         default:
             id_ = Id::TrainingRing;
             push(0.0f, floor_top, W, H - floor_top);
-            push(280.0f, floor_top - 160.0f, 240.0f, thick);
-            push(W - 520.0f, floor_top - 160.0f, 240.0f, thick);
+            push(280.0f, floor_top - 160.0f, 240.0f, thick, true);
+            push(W - 520.0f, floor_top - 160.0f, 240.0f, thick, true);
             spawn_x_[0] = 220.0f;
             spawn_x_[1] = W - 284.0f;
             break;
@@ -87,11 +88,28 @@ bool Arena::is_out_of_bounds(const Aabb& body) const {
         || body.y > blast_zone_.bottom;
 }
 
-bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
+bool Arena::resolve_collision(Aabb& body, Vec2& velocity,
+                              bool drop_through_one_way) const {
     bool grounded = false;
 
     for (const Platform& p : platforms()) {
         if (!intersects(body, p.aabb)) {
+            continue;
+        }
+
+        if (p.one_way) {
+            if (drop_through_one_way) continue;
+            // A one-way platform only catches a descending body whose feet
+            // were above its top at the start of this substep. This also
+            // prevents a fighter falling through from being pushed back up
+            // on the following tick.
+            const double previous_bottom = static_cast<double>(body.bottom()) - velocity.y;
+            if (velocity.y <= 0.0 || previous_bottom > p.aabb.y + 0.001) {
+                continue;
+            }
+            body.y = p.aabb.y - body.h;
+            velocity.y = 0.0;
+            grounded = true;
             continue;
         }
 
@@ -141,7 +159,8 @@ bool Arena::resolve_collision(Aabb& body, Vec2& velocity) const {
 }
 
 
-bool Arena::move_and_resolve(Aabb& body, Vec2& velocity) const {
+bool Arena::move_and_resolve(Aabb& body, Vec2& velocity,
+                             bool drop_through_one_way) const {
     constexpr double kMaxSubstepDistance = 16.0;
     const double distance = std::hypot(velocity.x, velocity.y);
     if (!std::isfinite(distance)) {
@@ -167,7 +186,7 @@ bool Arena::move_and_resolve(Aabb& body, Vec2& velocity) const {
         body.y += static_cast<float>(step_y);
 
         Vec2 step_velocity{step_x, step_y};
-        grounded = resolve_collision(body, step_velocity) || grounded;
+        grounded = resolve_collision(body, step_velocity, drop_through_one_way) || grounded;
 
         // Once an axis collides, stop advancing that component during the
         // remaining substeps; the unobstructed axis may still move.
@@ -181,6 +200,20 @@ bool Arena::move_and_resolve(Aabb& body, Vec2& velocity) const {
         }
     }
     return grounded;
+}
+
+
+bool Arena::supported_by_one_way(const Aabb& body) const {
+    constexpr float kSupportTolerance = 1.0f;
+    for (const Platform& p : platforms()) {
+        if (!p.one_way) continue;
+        const bool horizontal_overlap = body.right() > p.aabb.x
+            && body.x < p.aabb.right();
+        const bool feet_aligned = std::abs(body.bottom() - p.aabb.y)
+            <= kSupportTolerance;
+        if (horizontal_overlap && feet_aligned) return true;
+    }
+    return false;
 }
 
 void Arena::render(Renderer& renderer) const {
