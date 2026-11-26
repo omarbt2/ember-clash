@@ -36,7 +36,7 @@
 | P11 Arenas 4–6 | Six finished arenas and hazard/collision/performance QA | Three procedural arena layouts are present; no complete production set of six authored arenas | MISSING | Build three additional stages, assets, data, hazards and tests |
 | P12 Online 1v1 | Rollback/input history/transport/rooms/reconnect; 1000 net simulations and two-device test | Only local state hash/fingerprint foundations; no production online stack | MISSING | Snapshot completeness and determinism gates first; then netcode, transport, service/rooms and real-device latency QA |
 | P13 Ranked/Competitive | Server resimulation, validated results, rating/seasons/leaderboards and abuse checks | No ranked service or verified competitive result pipeline | MISSING | Implement only after P12 stable; security, simulation verification, closed beta and abuse testing |
-| P14 Optimization/Release | CI release matrix, packaging, reference-hardware budgets, 1000-match fuzz, external playtest, no placeholders/unlicensed assets | CI workflow and build scripts exist; current local CMake configure attempted; no current full Release build or release candidate | PARTIALLY VERIFIED / BUILD BLOCKED | Reproducible Linux/Windows/WASM release builds, benchmark/profiling, packaging, crash/save migration, external playtests, credits/licenses/store assets |
+| P14 Optimization/Release | CI release matrix, packaging, reference-hardware budgets, 1000-match fuzz, external playtest, no placeholders/unlicensed assets | Linux/Windows CI jobs plus a newly added Emscripten 4.0.23 WebAssembly Release job/artifact gate exist; workflow YAML parses; current local CMake configure attempted; no current full Release build or release candidate | PARTIALLY VERIFIED / BUILD BLOCKED | Reproducible Linux/Windows/WASM release builds, benchmark/profiling, packaging, crash/save migration, external playtests, credits/licenses/store assets |
 
 ## Tests executed in this run
 
@@ -50,6 +50,7 @@
 | `tests/ember_test_rebirth_motion.cpp` + `Motion.cpp` | PASS | Isolated movement step logic |
 | `tests/ember_test_p7_arenas.cpp` + arena/logger | PASS | Arena data/collision; renderer section discarded for headless test |
 | InputManager key round-trip/edge/hotplug probe | PASS | Compiled against a local SDL API test shim; this is not an SDL3 integration or hardware test |
+| CI workflow YAML parse | PASS — docs/Linux/Windows/WebAssembly jobs present | Workflow has not yet run on GitHub; WASM build remains unverified |
 | CMake Release configure | BLOCKED | SDL3 `release-3.2.10` FetchContent clone retried 3 times; DNS error `Could not resolve host: github.com` |
 | Full CMake build / CTest | NOT RUN | Configure failed before project compilation; no claim of full build or CTest success |
 | Real display/audio/gamepad, Windows/WASM, online | NOT RUN | Requires target runtimes/devices and external test sessions |

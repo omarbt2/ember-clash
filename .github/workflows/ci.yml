@@ -63,3 +63,36 @@ jobs:
         run: cmake --build build --config Release --parallel 2
       - name: Run regression suites
         run: ctest --test-dir build -C Release --output-on-failure
+
+  webassembly:
+    name: WebAssembly Release build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install --yes ninja-build
+      - name: Install Emscripten SDK
+        uses: emscripten-core/setup-emsdk@v16
+        with:
+          version: '4.0.23'
+      - name: Verify toolchain
+        run: emcc --version
+      - name: Configure WebAssembly Release
+        run: >-
+          emcmake cmake -S . -B build-web -G Ninja
+          -DCMAKE_BUILD_TYPE=Release
+          -DEMBER_BUILD_TESTS=OFF
+      - name: Build WebAssembly
+        run: cmake --build build-web --parallel 2
+      - name: Verify deploy artifacts
+        run: test -s web/EmberClash.js && test -s web/EmberClash.wasm
+      - name: Upload WebAssembly build
+        uses: actions/upload-artifact@v4
+        with:
+          name: ember-clash-webassembly-release
+          path: |
+            web/EmberClash.html
+            web/EmberClash.js
+            web/EmberClash.wasm
+            web/index.html
+          if-no-files-found: error
