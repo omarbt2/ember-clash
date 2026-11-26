@@ -6,7 +6,7 @@
 | Status | IN PROGRESS — no production phase is declared complete by this ledger |
 | Source of truth | `docs/rebirth/MASTER_COMPLETION_PLAN_AR.md` and the user's supplied `EMBER_CLASH_REBIRTH_MASTER_PLAN_AR.md` |
 | Revision date | 2026-11-26 |
-| Source revision inspected | Local branch `reconstruction/rebirth-input-recovery`, HEAD `c16505f` |
+| Source revision inspected | Recovered bundle HEAD `42fe5ad`; implementation snapshot `1e3175a`; see `evidence/build-recheck-2026-11-26.md` |
 | Build environment | Linux container; GCC 14.2.0; CMake 3.31.6; Ninja 1.12.1 |
 
 ## Verification rules
@@ -22,7 +22,7 @@
 
 | Phase | Plan exit gate (summary) | Current evidence | Status | Remaining gate |
 |---|---|---|---|---|
-| P0 Recovery/Audit | One reconciled source, clean history, clean Release build, all baseline tests, platform/hardware limits recorded | Bundle restored and verified in prior recovery; clean Git checkout at `c16505f`; docs checker passes (60 Markdown files after adding this ledger); five isolated C++ tests and seven asset-validator tests pass in this run | PARTIALLY VERIFIED / BUILD BLOCKED | Re-run a clean full SDL3 Release build and all CTest suites; verify Windows/WASM/hardware as applicable |
+| P0 Recovery/Audit | One reconciled source, clean history, clean Release build, all baseline tests, platform/hardware limits recorded | Newest ZIP/bundle verified; 181/181 files match; bundle fsck passes; local `1e3175a` descends from remote Phase 0 and master history; docs checker 61 files, asset tests 7/7 and four strict isolated C++ tests pass; SDL3 `release-3.2.10` fetch still fails DNS | PARTIALLY VERIFIED / BUILD BLOCKED | Obtain network or a provenance/hash-verified SDL3 cache; clean Release build + full CTest; reconcile the non-identical remote recovery ref; verify Windows/WASM/hardware as applicable |
 | P1 Design/Technical Plan | Owner-approved production bible, decisions resolved/deferred with reasons, shared constants and no contradictions | Master plan and 29 design/technical docs present; user explicitly authorized execution; decision log still contains unresolved/proposed items | PARTIALLY VERIFIED | Close or explicitly defer remaining D- decisions; update constants and decision log; verify consistency with implementation |
 | P2 Physics/Movement | Deterministic integer-tick model or approved representation; full movement set; replay gate and 20 replay comparison | Jump buffer, coyote time, double jump, run/dash and drop-through foundations exist; motion tests pass isolated | PARTIALLY VERIFIED | Complete ledge/DI/tech/blast-zone rules; convert remaining timers as decided; prove replay determinism and no-tunnel fuzz |
 | P3 Combat Engine | Data-driven moves; complete attack states, grabs/throws, projectiles/traps, armor/priority/staleness/DI; frame-exact tests and snapshot completeness | Attack table validation and combat-resolution foundation exist; isolated attack-table test passes | PARTIALLY VERIFIED | Missing major move families and lifecycle/state snapshot coverage; full scenario harness and tick-exact suite |
@@ -36,30 +36,32 @@
 | P11 Arenas 4–6 | Six finished arenas and hazard/collision/performance QA | Three procedural arena layouts are present; no complete production set of six authored arenas | MISSING | Build three additional stages, assets, data, hazards and tests |
 | P12 Online 1v1 | Rollback/input history/transport/rooms/reconnect; 1000 net simulations and two-device test | Only local state hash/fingerprint foundations; no production online stack | MISSING | Snapshot completeness and determinism gates first; then netcode, transport, service/rooms and real-device latency QA |
 | P13 Ranked/Competitive | Server resimulation, validated results, rating/seasons/leaderboards and abuse checks | No ranked service or verified competitive result pipeline | MISSING | Implement only after P12 stable; security, simulation verification, closed beta and abuse testing |
-| P14 Optimization/Release | CI release matrix, packaging, reference-hardware budgets, 1000-match fuzz, external playtest, no placeholders/unlicensed assets | Linux/Windows CI jobs plus a newly added Emscripten 4.0.23 WebAssembly Release job/artifact gate exist; workflow YAML parses; current local CMake configure attempted; no current full Release build or release candidate | PARTIALLY VERIFIED / BUILD BLOCKED | Reproducible Linux/Windows/WASM release builds, benchmark/profiling, packaging, crash/save migration, external playtests, credits/licenses/store assets |
+| P14 Optimization/Release | CI release matrix, packaging, reference-hardware budgets, 1000-match fuzz, external playtest, no placeholders/unlicensed assets | Recovered local workflow defines docs/Linux/Windows/Emscripten 4.0.23 jobs and YAML parses; remote `.github/workflows/ci.yml` fetch returned 404 on all three current refs; no Actions run or full Release build verified | PARTIALLY VERIFIED / BUILD BLOCKED | Publish the reconciled workflow/source branch, verify Actions runs, complete reproducible platform builds, benchmark/profiling, packaging, crash/save migration, external playtests, credits/licenses/store assets |
 
-## Tests executed in this run
+## Tests executed in the 2026-11-26 recheck
 
 | Command/test | Result | Limitation |
 |---|---|---|
-| `python3 tools/check_rebirth_docs.py` | PASS — 60 files | Documentation consistency only |
-| `python3 -m unittest discover -s tools/tests -v` | PASS — 7 tests | Asset-manifest validator only; not game runtime |
-| `tests/ember_test_attack_table.cpp` + `Attack.cpp` | PASS | Isolated strict C++20 executable |
-| `tests/ember_test_ai_presets.cpp` | PASS | Preset data only |
-| `tests/ember_test_training_recorder.cpp` | PASS | Recorder container behavior only |
-| `tests/ember_test_rebirth_motion.cpp` + `Motion.cpp` | PASS | Isolated movement step logic |
-| `tests/ember_test_p7_arenas.cpp` + arena/logger | PASS | Arena data/collision; renderer section discarded for headless test |
-| InputManager key round-trip/edge/hotplug probe | PASS | Compiled against a local SDL API test shim; this is not an SDL3 integration or hardware test |
-| CI workflow YAML parse | PASS — docs/Linux/Windows/WebAssembly jobs present | Workflow has not yet run on GitHub; WASM build remains unverified |
-| CMake Release configure | BLOCKED | SDL3 `release-3.2.10` FetchContent clone retried 3 times; DNS error `Could not resolve host: github.com` |
-| Full CMake build / CTest | NOT RUN | Configure failed before project compilation; no claim of full build or CTest success |
-| Real display/audio/gamepad, Windows/WASM, online | NOT RUN | Requires target runtimes/devices and external test sessions |
+| `python3 tools/check_rebirth_docs.py` | PASS — 61 Markdown files | Documentation consistency only |
+| `python3 -m unittest discover -s tools/tests -v` | PASS — 7 tests | Asset-manifest validator only |
+| `ember_test_attack_table` (strict GCC C++20) | PASS — compile and execute | Attack-table logic only |
+| `ember_test_ai_presets` (strict GCC C++20) | PASS — compile and execute | AI preset data only |
+| `ember_test_training_recorder` (strict GCC C++20) | PASS — compile and execute | Bounded recorder utility only |
+| `ember_test_rebirth_motion` (strict GCC C++20) | PASS — compile and execute | Platform-neutral movement step logic only |
+| Local CI workflow YAML parse | PASS — docs/Linux/Windows/WebAssembly jobs present | Syntax only; workflow not verified on GitHub |
+| Bundle integrity / ZIP tree comparison | PASS — complete bundle, fsck clean, 181 files match | Recovery integrity only |
+| CMake Release configure | BLOCKED — SDL3 fetch DNS failure | Stops before project compilation |
+| Full CMake build / CTest | NOT RUN | Configure did not complete |
+| Windows/WASM runtime, display/audio/gamepad/4P | UNVERIFIED | Requires successful target build and runtime/device tests |
+
+See `evidence/build-recheck-2026-11-26.md` for exact SHAs, command, logs, artifact hashes and remote ref comparison.
 
 ## Current checkpoint and next order
 
-- Local HEAD at ledger creation: `c16505f` (`docs: record P3-P9 continuation evidence and remaining gates`).
-- Working tree is kept clean after evidence commit.
-- The current GitHub branch is a separate remote snapshot and does **not** contain this local source history. A network push from this container is blocked by DNS; no force-push was attempted.
-- Immediate engineering order from the plan: unblock/reproduce SDL build → P0 baseline gate → P1 decision closure → P2 determinism gate → P3 complete combat data/snapshot → P4/P5 production fighter + art pipeline → P6 AI/training benchmark → P7/P8/P9 V1 local release → P10 Wave A → P14 release gates → P11/P12/P13 post-launch.
+- Recovered bundle/document HEAD: `42fe5ad9b667f0aca1d2f61a13d7382be0e3fd08`; underlying implementation snapshot: `1e3175aba6e6d6fcf6237016ad3fe35119165efe`.
+- Current local work branch: `work/s0-build-unblock-2026-11-26`, based on the verified recovered bundle. No remote branch was changed.
+- Current GitHub refs: `master=365348a2dacea4e03362bfd1fd718582361ba693`, `rebirth/phase0=7fddfde7b909b2fa338bc9095b29f30bb0031bf9`, and `reconstruction/rebirth-input-recovery=3026c02757a5bffc6e894fdb1309eb7219d6f1c7`. The local `1e3175a` snapshot descends from the first two through its merge history; the remote reconstruction ref with the same name is a separate, non-identical line.
+- Direct Git network access still fails DNS. No push, PR or merge was attempted. The recovered `.github/workflows/ci.yml` parses locally, but GitHub returned 404 for that path on all three current remote refs; no workflow run for the local SHA is established.
+- Immediate engineering order: obtain reachable GitHub networking or a provenance/hash-verified SDL3 `release-3.2.10` cache → clean Release configure/build → full CTest → complete P0 tree/ancestry reconciliation and safe new-branch publication.
 
 This ledger is a progress/evidence artifact, not a declaration that the plan or any phase is complete.
