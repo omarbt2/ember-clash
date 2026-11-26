@@ -12,6 +12,8 @@
 
 Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared constants are defined only in [00_SHARED_CONSTANTS.md](00_SHARED_CONSTANTS.md) and referenced as [SC-n].
 
+**Current execution plan:** [MASTER_EXECUTION_ROADMAP_2026-11-26_AR.md](MASTER_EXECUTION_ROADMAP_2026-11-26_AR.md) — use this as the active order of work and acceptance gates; the detailed production bible and P0–P14 work packages remain the specifications.
+
 ---
 
 This package replaces the preliminary six documents (`docs/REBIRTH_*.md`, commit `644bd8d`), which are kept for history and marked superseded. At commit `d48fe96`, it was planning documentation only: no source code was changed in that documentation commit and no roadmap phase beyond P0 was represented as complete. Subsequent recovery changes and their verification limits are recorded in [the 2026-11-25 evidence report](evidence/2026-11-25-input-and-menu-recovery.md).

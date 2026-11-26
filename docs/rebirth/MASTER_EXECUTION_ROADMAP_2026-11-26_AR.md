@@ -1,12 +1,16 @@
 # EMBER CLASH REBIRTH — الخطة التنفيذية الشاملة حسب الحالة الحالية
 
-**النسخة:** 2.0 — خطة التنفيذ والقبول المرحلية  
-**تاريخ التحديث:** 26 نوفمبر 2026  
-**المستودع:** `omarbt2/ember-clash`  
-**الفرع المحلي المرجعي وقت إعداد الوثيقة:** `reconstruction/rebirth-input-recovery`  
-**HEAD وقت إعداد الوثيقة:** `1e3175a`  
-**التقنية:** C++20 + SDL3 + CMake؛ لعبة قتال منصات 2D أصلية  
-**الحالة:** خطة عمل معتمدة للتنفيذ؛ ليست إعلاناً عن اكتمال اللعبة أو المراحل.
+| Field | Value |
+|---|---|
+| Purpose | Current evidence-based execution roadmap for Ember Clash Rebirth, P0–P14. |
+| Status | ACTIVE WORK PLAN — phases remain subject to their acceptance gates. |
+| Revision date | 2026-11-26 (v2.1) |
+| Repository | `omarbt2/ember-clash` |
+| Local branch at audit | `reconstruction/rebirth-input-recovery` |
+| Code state audited | `1e3175a` |
+| Roadmap file commit | `d04b8a7` |
+| Technology | C++20 + SDL3 + CMake; original 2D platform fighter |
+
 
 > هذه الوثيقة هي نقطة الرجوع التنفيذية الحالية. تحتفظ بخطة P0–P14 وبوثائق التصميم وWork Packages الموجودة في `docs/rebirth/`. لا تستبدلها ولا تبدأ المشروع من جديد. إذا اختلفت وثيقة قديمة مع هذه الخطة في ترتيب التنفيذ أو حالة الإنجاز، فحالة الكود والدليل الحالي هما المرجع، وهذه الوثيقة تحدد ترتيب العمل التالي. قرارات التصميم التفصيلية تبقى في ملفاتها الأصلية وDecision Log.
 
@@ -359,6 +363,27 @@ Online وRanked ليسا شرطاً لإطلاق V1.0 المحلي، لكنهم�
 
 ---
 
-## 10. سجل التحديثات
+## 10. تعليمات الاستمرار من هذه الوثيقة (Agent Handoff)
+
+عند استئناف العمل في جلسة جديدة أو بواسطة أداة/agent آخر، يجب اتباع هذا التسلسل حرفياً:
+
+1. افتح هذه الوثيقة، ثم `docs/rebirth/evidence/2026-11-26-full-plan-status.md`، ثم Work Package للمرحلة التالية، ثم الملفات المصدرية المرتبطة بها.
+2. افحص `git status` و`git log` والفرع والـremote قبل التعديل؛ لا تفترض أن الملفات أو history في remote مطابقة للـworkspace المحلي.
+3. ابدأ بأول gate غير مغلق في Sprint 0/Sprint 1؛ لا تقفز إلى إضافة محتوى جديد إذا كان build أو source lineage غير مستقر.
+4. نفذ تغييراً صغيراً قابلاً للمراجعة، ثم اختبره. إذا تعذر اختبار التكامل، أضف اختباراً مستقلاً مفيداً وسجل حدود دليله، ولا تسمّه integration test.
+5. لا تتوقف عند أول blocker: افحص cache/toolchain/runner أو نفذ الجزء المستقل الآمن، ثم سجل ما بقي blocked وسبب ذلك. لا تغيّر dependency أو architecture بصمت لتجاوز blocker.
+6. بعد كل مجموعة تغييرات: شغّل الاختبارات المناسبة، `git diff --check`، docs checker عند تعديل الوثائق، حدّث evidence/status، ثم commit محلياً.
+7. لا تنشئ phase-done tag، ولا تكتب BUILD PASS أو PUSHED أو APK/Release READY إلا بعد تحقق مباشر من gate المقصود.
+8. قبل أي push: قارن ancestry مع GitHub؛ استخدم branch جديداً إذا كان التاريخ مختلفاً، ولا force-push ولا تعدّل `master` مباشرة. تحقق بعد النشر من SHA الموجود على GitHub.
+9. عند تسليم العمل، اذكر: ما تغير، commit، الاختبارات التي نجحت، التي لم تُشغّل، blockers، والملف/الحزمة التي يمكن للمستخدم استكمالها.
+
+**Prompt مختصر للاستئناف:**
+
+> أكمل Ember Clash Rebirth من المستودع الحالي، ولا تبدأ من الصفر. اقرأ `docs/rebirth/MASTER_EXECUTION_ROADMAP_2026-11-26_AR.md` وملف evidence وWork Package التالية قبل التعديل. افحص Git lineage والـworking tree. نفّذ أول gate غير مكتمل حسب الخطة، مع أقصى عمل آمن ممكن، واختبارات حقيقية وcommits صغيرة. لا تدّعِ نجاح build أو push أو اكتمال phase دون دليل. حدّث evidence والـroadmap بعد العمل، وصدّر bundle/patch إذا تعذر push.
+
+---
+
+## 11. سجل التحديثات
 
 - **2026-11-26 — v2.0:** إعادة ترتيب خطة P0–P14 حسب evidence الحالي، تحديد V1 مقابل post-launch، إضافة execution sprints، gates، current build/network limitations، workflow GitHub/plugins، وDefinition of Done. الحالة مستمدة من `docs/rebirth/evidence/2026-11-26-full-plan-status.md` وHEAD `1e3175a`.
+- **2026-11-26 — v2.1:** إضافة تعليمات الاستئناف العملية وprompt handoff؛ توضيح الفرق بين commit الكود الذي دُققت حالته (`1e3175a`) وcommit الوثيقة (`d04b8a7`).
