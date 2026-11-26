@@ -6,7 +6,7 @@
 | Status | IN PROGRESS — no production phase is declared complete by this ledger |
 | Source of truth | `docs/rebirth/MASTER_COMPLETION_PLAN_AR.md` and the user's supplied `EMBER_CLASH_REBIRTH_MASTER_PLAN_AR.md` |
 | Revision date | 2026-11-26 |
-| Source revision inspected | Recovered bundle HEAD `42fe5ad`; implementation snapshot `1e3175a`; see `evidence/build-recheck-2026-11-26.md` |
+| Source revision inspected | Recovered baseline `42fe5ad`; implementation now continues on local branch `work/s0-build-unblock-2026-11-26`; latest committed P2 work is recorded in `evidence/build-recheck-2026-11-26.md` |
 | Build environment | Linux container; GCC 14.2.0; CMake 3.31.6; Ninja 1.12.1 |
 
 ## Verification rules
@@ -24,7 +24,7 @@
 |---|---|---|---|---|
 | P0 Recovery/Audit | One reconciled source, clean history, clean Release build, all baseline tests, platform/hardware limits recorded | Newest ZIP/bundle verified; 181/181 files match; bundle fsck passes; local `1e3175a` descends from remote Phase 0 and master history; docs checker 61 files, asset tests 7/7 and four strict isolated C++ tests pass; SDL3 `release-3.2.10` fetch still fails DNS | PARTIALLY VERIFIED / BUILD BLOCKED | Obtain network or a provenance/hash-verified SDL3 cache; clean Release build + full CTest; reconcile the non-identical remote recovery ref; verify Windows/WASM/hardware as applicable |
 | P1 Design/Technical Plan | Owner-approved production bible, decisions resolved/deferred with reasons, shared constants and no contradictions | Master plan and 29 design/technical docs present; user explicitly authorized execution; decision log still contains unresolved/proposed items | PARTIALLY VERIFIED | Close or explicitly defer remaining D- decisions; update constants and decision log; verify consistency with implementation |
-| P2 Physics/Movement | Deterministic integer-tick model or approved representation; full movement set; replay gate and 20 replay comparison | Shared 60 Hz fixed-step accumulator used by Desktop/Web; dt-free gameplay APIs; 30/90/90 integer-tick respawn/invulnerability/KO-banner timers; input-edge latching; data-driven four-sided blast zones; bounded 16 px collision substeps; 25 headless suites pass under GCC + Clang and GCC ASan/UBSan. Replay equivalence NOT passed: old float respawn timer observed at update 31 vs current integer tick 30, and side blast zones intentionally differ | PARTIALLY VERIFIED | Rebaseline 20 scripts to isolate D-001; owner sign-off on timer event tick; D-002 numeric gate; POD snapshot completeness; ledge/DI/tech; CI/full builds and 2-player feel test |
+| P2 Physics/Movement | Deterministic integer-tick model or approved representation; full movement set; replay gate and 20 replay comparison | Shared 60 Hz Desktop/Web accumulator, dt-free gameplay, integer timers, input-edge latches, four-sided blast zones, bounded 16 px collision substeps. 28/28 headless suites pass under GCC and Clang strict C++20. Controlled 20-script/37,200-row replay has 0 event mismatches and max position delta 0.0001221 px (<0.01); durable replay determinism test passes. D-002 local 100k probe hash matches GCC/Clang O0/O2 | PARTIALLY VERIFIED | D-001 owner sign-off; complete D-002 Windows/MSVC + WASM matrix; POD snapshot; ledge/DI/tech; full SDL build/CTest; 2-player feel test |
 | P3 Combat Engine | Data-driven moves; complete attack states, grabs/throws, projectiles/traps, armor/priority/staleness/DI; frame-exact tests and snapshot completeness | Attack table validation and combat-resolution foundation exist; isolated attack-table test passes | PARTIALLY VERIFIED | Missing major move families and lifecycle/state snapshot coverage; full scenario harness and tick-exact suite |
 | P4 Two Fully Playable Fighters | Kaelen and Torga each have complete, distinct move sets/hooks, matchup balance and playtest evidence | Two fighter slots and shared combat foundation exist; fighter design documents present | PARTIALLY VERIFIED | Unique hooks and all moves playable, matchup simulator, human playtests and balance evidence |
 | P5 Real Art/Animation Pipeline | Production character art and all 47 clips/fighter; rig/atlas/animation data; ≤2 px hitbox alignment; licensing; real assets in build | Art manifest validator and seven validator tests pass; current runtime still uses procedural placeholder sprites; no complete authored production atlas/rig assets in repo | MISSING production art / PARTIAL tooling | Approve art method; deliver Kaelen/Torga 47 clips each first; import into runtime; review hand/arm/action poses and licenses; no placeholder release assets |
@@ -44,10 +44,11 @@
 |---|---|---|
 | `python3 tools/check_rebirth_docs.py` | PASS — 63 Markdown files | Documentation consistency only |
 | `python3 -m unittest discover -s tools/tests -v` | PASS — 7 tests | Asset-manifest validator only |
-| 25 current headless C++ suites (strict GCC 14 C++20) | PASS — 25/25 compile and execute | SDL declarations supplied by a local compatibility shim; not a full SDL3 build |
-| Same 25 suites (strict Clang 17 C++20) | PASS — 25/25 compile and execute | Same shim limitation |
-| Same 25 suites (GCC 14 ASan + UBSan) | PASS — 25/25 compile and execute | Headless sanitizer matrix; not runtime graphics/audio validation |
-| P2 replay comparison | NOT PASSED | One-update respawn discrepancy and intentional side blast-zone behavior change; see dedicated evidence |
+| 28 current headless C++ suites (GCC 14 strict C++20, `-O2 -ffp-contract=off`) | PASS — 28/28 compile and execute | SDL declarations supplied by local compatibility shim; not a full SDL3 build |
+| Same 28 suites (Clang 17 strict C++20, `-O2 -ffp-contract=off`) | PASS — 28/28 compile and execute | Same shim limitation |
+| GCC 14 ASan + UBSan | Prior 25/25 matrix passed; latest M5 timer and replay probes also pass | Headless sanitizer scope; not graphics/audio runtime validation |
+| Controlled P2 replay comparison | PASS — 20 scripts / 37,200 rows; 0 event mismatches; max position delta 0.0001221 px | Uses matched blast-zone behavior for fixed-step comparison; four-sided blast-zone change is separately intentional |
+| D-002 constrained-float probe | PASS locally — 100,000 ticks; identical hash `3c7689ffdc9e9abb` for GCC/Clang O0/O2 with `-ffp-contract=off` | Linux only; Windows/MSVC, WASM, and three-build-per-platform gate remain open |
 | App/Web entry-point syntax checks with SDL/Emscripten shims | PASS | Emscripten/WASM toolchain and runtime not installed |
 | Local CI workflow YAML parse | PASS — docs/Linux/Windows/WebAssembly jobs present | Syntax only; workflow not verified on GitHub |
 | Bundle integrity / ZIP tree comparison | PASS — complete bundle, fsck clean, 181 files match | Recovery integrity only |

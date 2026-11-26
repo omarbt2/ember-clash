@@ -18,7 +18,7 @@ Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared
 |---|---|---|---|---|---|---|---|---|
 | D-000 | Keep C++20 + SDL3 + CMake | CONFIRMED (owner prompt) | existing codebase | engine switch | keep | working build, tests | - | confirmed |
 | D-001 | Integer-tick time model, no dt in sim | PROPOSED | C1 | keep dt+assert | adopt with replay proof | needed for rollback | replay equivalence | Y |
-| D-002 | Fixed-point Q16.16 vs constrained float | OPEN (gate) | C10 | Q16.16, Q24.8, float | run gate in P2; default Q16.16 if gate fails | determinism | cross-platform replay hashes | Y |
+| D-002 | Fixed-point Q16.16 vs constrained float | OPEN (local Linux probe passes GCC/Clang O0/O2; Windows/WASM gate incomplete) | C10 | Q16.16, Q24.8, float | run full platform/build matrix before selecting | determinism | 100k replay hashes across platform/compiler builds | Y |
 | D-003 | State snapshot POD design | PROPOSED | 18 | OO copy | POD fixed arrays | cheap rollback | completeness test | Y |
 | D-004 | Art production method | OPEN | 09 | A/B/C | spike; working hypothesis A | consistency vs look | spike go/no-go | Y |
 | D-005 | Roster names/concepts | CONFIRMED provisional (owner) | prompt | edit | keep | - | - | Y for changes |

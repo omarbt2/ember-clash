@@ -267,30 +267,31 @@ void AiController::tick_approach(const Fighter& self,
     // even when live_ticks is 0.
     const bool in_cooldown = (live_ticks - last_attack_tick_)
                            <  combat::kAiAttackCooldownTicks;
-    if (!in_cooldown)
-    // In jab range: commit to a jab (most of the time) or ftilt if slightly
-    // further. attack_frequency is the probability of committing once in
-    // range; the rest of the time the bot keeps approaching.
-    if (in_jab_range(self, opp) && self.is_grounded()) {
-        if (rand_percent() < difficulty_.attack_frequency) {
-            c.jab_pressed = true;
-            last_attack_tick_ = live_ticks;
-            enter_state(State::Attack);
-            return;
-        }
-    } else if (in_ftilt_range(self, opp) && self.is_grounded()) {
-        if (rand_percent() < difficulty_.attack_frequency) {
-            c.ftilt_pressed = true;
-            last_attack_tick_ = live_ticks;
-            enter_state(State::Attack);
-            return;
-        }
-    } else if (in_nair_range(self, opp)) {
-        if (rand_percent() < difficulty_.attack_frequency) {
-            c.nair_pressed = true;
-            last_attack_tick_ = live_ticks;
-            enter_state(State::Attack);
-            return;
+    if (!in_cooldown) {
+        // In jab range: commit to a jab (most of the time) or ftilt if slightly
+        // further. attack_frequency is the probability of committing once in
+        // range; the rest of the time the bot keeps approaching.
+        if (in_jab_range(self, opp) && self.is_grounded()) {
+            if (rand_percent() < difficulty_.attack_frequency) {
+                c.jab_pressed = true;
+                last_attack_tick_ = live_ticks;
+                enter_state(State::Attack);
+                return;
+            }
+        } else if (in_ftilt_range(self, opp) && self.is_grounded()) {
+            if (rand_percent() < difficulty_.attack_frequency) {
+                c.ftilt_pressed = true;
+                last_attack_tick_ = live_ticks;
+                enter_state(State::Attack);
+                return;
+            }
+        } else if (in_nair_range(self, opp)) {
+            if (rand_percent() < difficulty_.attack_frequency) {
+                c.nair_pressed = true;
+                last_attack_tick_ = live_ticks;
+                enter_state(State::Attack);
+                return;
+            }
         }
     }
 

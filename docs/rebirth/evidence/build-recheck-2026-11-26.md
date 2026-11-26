@@ -159,13 +159,14 @@ These checks validate the script's syntax and rejection path only. The expected-
 
 A later local continuation was exercised against the pre-change checkpoint `6ea466912036c808821b58a39cd0104d1860654a` (the earlier `2eeceae` reference predates additional P2/P3 work and is not an isolated D-001 baseline). Changes and results are recorded in [p2-fixed-step-and-collision-recheck-2026-11-26.md](p2-fixed-step-and-collision-recheck-2026-11-26.md).
 
-The continuation adds a shared 60 Hz accumulator for Desktop/Web, input-edge latches, dt-free gameplay APIs, integer-tick respawn/invulnerability/KO-banner timers, four-sided blast zones, bounded 16 px collision substeps, expanded simulation-state hashing, deterministic per-match KO-shake RNG, and several dead-member/test cleanup fixes revealed by strict Clang checks.
+The continuation adds a shared 60 Hz accumulator for Desktop/Web, input-edge latches, dt-free gameplay APIs, integer-tick respawn/invulnerability/KO-banner timers, four-sided blast zones, bounded 16 px collision substeps, expanded simulation-state hashing, deterministic per-match KO-shake RNG, and dead-member/test cleanup fixes revealed by strict Clang/GCC checks. The D-002 probe also exposed and fixed an ambiguous dangling-else warning in the AI attack/cooldown branch by making the intended scope explicit; behavior is unchanged.
 
 Current headless verification was rebuilt from source:
 
-- GCC 14 strict C++20: 27/27 suites pass after the latest timer/test cleanup.
-- Clang 17 strict C++20: prior 25/25 matrix passed; latest M5 timer regression and 20-script replay suite also rebuilt/run successfully.
+- GCC 14 strict C++20 (`-O2 -ffp-contract=off`): 28/28 suites pass after the respawn fix, replay test, D-002 probe, and strict-warning cleanup.
+- Clang 17 strict C++20 (`-O2 -ffp-contract=off`): 28/28 suites pass.
 - GCC 14 ASan+UBSan: prior 25/25 matrix passed; latest M5 timer regression and 20-script replay suite also rebuilt/run successfully, no sanitizer report.
+- D-002 100,000-tick randomized-input probe matched digest `3c7689ffdc9e9abb` under GCC/Clang O0/O2 with `-ffp-contract=off`; Windows/MSVC and Emscripten remain untested. See `d002-constrained-float-probe-2026-11-26.md`.
 - `App.cpp` syntax/compile, Web entry syntax and M8 compile-time check pass with declaration-only local shims; no actual Emscripten binary was built.
 
 A follow-up corrected the respawn timer ordering: the KO-detection tick now starts the 30-tick wait and is not decremented, so respawn occurs after 30 complete subsequent simulation ticks. The M5 timer regression was rebuilt and passed under GCC strict warnings, Clang strict warnings, and GCC ASan+UBSan. The controlled 20-script comparison (37,200 rows) was rebuilt against equivalent blast-zone rules: 0 event-field mismatches and maximum P1/P2 position difference `0.0001220701 px` (within the `0.01 px` criterion). A durable in-tree `ember_test_p2_replay_determinism` now checks 37,200 ticks across 20 scripts using complete state hashes and passes under GCC, Clang and GCC ASan+UBSan. The separate no-initial-KO comparison still records the intentional side-ring-out difference from the four-sided blast-zone feature at tick 213; it is not conflated with fixed-step equivalence. D-001 remains PROPOSED pending owner review and broader numeric/cross-platform gates. P2 remains PARTIALLY VERIFIED.

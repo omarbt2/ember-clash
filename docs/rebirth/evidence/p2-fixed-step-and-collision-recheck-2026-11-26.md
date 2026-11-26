@@ -81,7 +81,7 @@ The plan's original replay reference `2eeceae` predates later P2/P3 code already
 ## 4. Remaining P2 requirements
 
 - Owner review/sign-off of D-001's now-explicit convention: respawn after 30 complete simulation ticks following the KO-detection tick. Controlled legacy replay evidence passes the required tolerance/event check; four-sided blast-zone behavior is separately identified as an intentional rules delta.
-- Run and decide D-002 numeric representation (constrained float versus fixed-point) with cross-platform evidence.
+- Complete D-002 across Windows/MSVC and Emscripten/WASM/Node, repeat the required independent builds, and only then decide constrained float versus fixed-point.
 - Complete the POD `MatchState` snapshot and prove snapshot/hash completeness; `state_hash()` expansion is not a POD rollback snapshot.
 - Implement/verify remaining ledge, DI, and tech mechanics; complete broader move/movement edge-case matrices.
 - Run full Release configure/build/CTest with the actual pinned SDL3 dependency, then native Desktop/Web builds and manual feel tests with two testers.
