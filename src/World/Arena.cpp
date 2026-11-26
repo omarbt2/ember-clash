@@ -23,17 +23,18 @@ void Arena::reset(Id id) {
     id_ = id;
     count_ = 0;
 
-    auto push = [&](float x, float y, float w, float h, bool one_way = false) {
+    auto push = [&](float x, float y, float w, float h,
+                    bool one_way = false, bool ledge_grabbable = false) {
         if (count_ < kMaxPlatforms) {
             data_[static_cast<std::size_t>(count_++)] =
-                Platform{Aabb{x, y, w, h}, one_way};
+                Platform{Aabb{x, y, w, h}, one_way, ledge_grabbable};
         }
     };
 
     switch (id_) {
         case Id::TrainingRing:
             // Familiar flat floor with two elevated side platforms.
-            push(0.0f, floor_top, W, H - floor_top);
+            push(0.0f, floor_top, W, H - floor_top, false, true);
             push(280.0f, floor_top - 160.0f, 240.0f, thick, true);
             push(W - 520.0f, floor_top - 160.0f, 240.0f, thick, true);
             spawn_x_[0] = 220.0f;
@@ -42,7 +43,7 @@ void Arena::reset(Id id) {
         case Id::EmberFoundry:
             // A narrow main deck with a central furnace bridge and offset
             // side shelves; the outer gaps create meaningful edge pressure.
-            push(150.0f, floor_top, W - 300.0f, H - floor_top);
+            push(150.0f, floor_top, W - 300.0f, H - floor_top, false, true);
             push(450.0f, floor_top - 190.0f, 380.0f, thick, true);
             push(255.0f, floor_top - 95.0f, 190.0f, thick, true);
             push(W - 445.0f, floor_top - 95.0f, 190.0f, thick, true);
@@ -51,7 +52,7 @@ void Arena::reset(Id id) {
             break;
         case Id::SkyTemple:
             // Three stepped platforms over a raised central sanctuary.
-            push(130.0f, floor_top, W - 260.0f, H - floor_top);
+            push(130.0f, floor_top, W - 260.0f, H - floor_top, false, true);
             push(235.0f, floor_top - 118.0f, 205.0f, thick, true);
             push(520.0f, floor_top - 215.0f, 240.0f, thick, true);
             push(W - 440.0f, floor_top - 118.0f, 205.0f, thick, true);
@@ -60,7 +61,7 @@ void Arena::reset(Id id) {
             break;
         default:
             id_ = Id::TrainingRing;
-            push(0.0f, floor_top, W, H - floor_top);
+            push(0.0f, floor_top, W, H - floor_top, false, true);
             push(280.0f, floor_top - 160.0f, 240.0f, thick, true);
             push(W - 520.0f, floor_top - 160.0f, 240.0f, thick, true);
             spawn_x_[0] = 220.0f;
@@ -202,6 +203,57 @@ bool Arena::move_and_resolve(Aabb& body, Vec2& velocity,
     return grounded;
 }
 
+
+LedgeGrab Arena::find_ledge_grab(const Aabb& body, const Vec2& velocity,
+                                int facing) const {
+    constexpr float kReach = 24.0f;
+    constexpr float kHangOffsetBelowTop = 18.0f;
+    LedgeGrab best{};
+    float best_gap = std::numeric_limits<float>::max();
+
+    if (velocity.y <= 0.0 || (facing != -1 && facing != 1)) return best;
+
+    for (const Platform& platform : platforms()) {
+        if (!platform.ledge_grabbable) continue;
+        const Aabb& p = platform.aabb;
+        // Ledge catching is only for an airborne body whose lower half has
+        // passed the platform top. Bodies already above the surface should
+        // go through the normal landing resolver instead.
+        if (body.bottom() <= p.y + 2.0f
+            || body.y > p.y + body.h * 0.45f) {
+            continue;
+        }
+
+        const float left_gap = p.x - body.right();
+        if (facing > 0 && left_gap >= -1.0f
+            && left_gap <= kReach && left_gap < best_gap) {
+            best = LedgeGrab{
+                true,
+                p.x - body.w + 6.0f,
+                p.y - body.h + kHangOffsetBelowTop,
+                p.x + 6.0f,
+                p.y,
+                1,
+            };
+            best_gap = left_gap;
+        }
+
+        const float right_gap = body.x - p.right();
+        if (facing < 0 && right_gap >= -1.0f
+            && right_gap <= kReach && right_gap < best_gap) {
+            best = LedgeGrab{
+                true,
+                p.right() - 6.0f,
+                p.y - body.h + kHangOffsetBelowTop,
+                p.right() - body.w - 6.0f,
+                p.y,
+                -1,
+            };
+            best_gap = right_gap;
+        }
+    }
+    return best;
+}
 
 bool Arena::supported_by_one_way(const Aabb& body) const {
     constexpr float kSupportTolerance = 1.0f;

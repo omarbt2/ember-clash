@@ -2,6 +2,7 @@
 
 #include "Core/Config.h"
 #include "Gameplay/CombatConfig.h"
+#include "Gameplay/AiController.h"
 #include "Gameplay/Fighter.h"
 #include "Gameplay/TrainingRecorder.h"
 #include "World/Arena.h"
@@ -10,6 +11,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <memory>
+#include <type_traits>
 
 namespace ember {
 
@@ -29,6 +31,33 @@ public:
     // is entered when one fighter's stocks_remaining hits 0; the player
     // can press R (handled in App) to reset the match back to Fighting.
     enum class Phase { Fighting, MatchOver };
+
+    // Complete, fixed-layout match state for deterministic rollback/replay.
+    // Runtime ownership (textures/controllers) is recreated from these values.
+    struct Snapshot {
+        std::uint32_t version{1};
+        Arena::Id arena_id{Arena::Id::TrainingRing};
+        std::array<Fighter::Snapshot, kFighterCount> fighters{};
+        std::array<bool, kFighterCount> has_ai{};
+        std::array<AiController::Snapshot, kFighterCount> ai{};
+        training::Recorder::Snapshot training{};
+        std::array<int, kFighterCount> respawn_timer{{-1, -1}};
+        int ko_banner_ticks{0};
+        Phase phase{Phase::Fighting};
+        float last_hit_x{0.0f};
+        float last_hit_y{0.0f};
+        bool last_hit_valid{false};
+        int hit_spark_age{0};
+        int match_startup_ticks{0};
+        int intro_banner_state{0};
+        int live_ticks{0};
+        int hit_stop_frames{0};
+        int ko_shake_frames{0};
+        float ko_shake_offset_x{0.0f};
+        float ko_shake_offset_y{0.0f};
+        std::uint32_t shake_rng_state{0x6D2B79F5u};
+    };
+    static_assert(std::is_trivially_copyable_v<Snapshot>);
 
     Match();
     ~Match();
@@ -146,6 +175,10 @@ public:
     void set_hit_stop_frames_for_test(int frames) {
         hit_stop_frames_ = frames > 0 ? frames : 0;
     }
+
+    // POD value snapshot for deterministic save/restore and replay branching.
+    Snapshot capture_state() const;
+    bool restore_state(const Snapshot& snapshot);
 
     // M11: simulation-state fingerprint. Folds exact IEEE-754 bit patterns
     // plus fighter resources/timers, AI runtime + tuning + RNG, training

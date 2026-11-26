@@ -5,9 +5,58 @@
 #include "Physics/PhysicsConfig.h"
 #include "World/Arena.h"
 
+#include <algorithm>
+#include <cmath>
+
 namespace ember {
 
 namespace {
+// Apply one tick of directional influence to a launch vector. DI may rotate
+// the current trajectory by at most the configured angle from the original
+// knockback direction, without changing its speed. It cannot increase the
+// pre-DI downward component; an upward/horizontal launch cannot be steered
+// into a downward trajectory. Gravity is applied separately afterwards.
+Vec2 apply_directional_influence(Vec2 velocity, Vec2 launch,
+                                  double input_x, double input_y) {
+    constexpr double kPi = 3.14159265358979323846;
+    const double current_speed = std::hypot(velocity.x, velocity.y);
+    if (current_speed <= 1e-9 || (input_x == 0.0 && input_y == 0.0))
+        return velocity;
+
+    Vec2 candidate{
+        velocity.x + input_x * physics::kDirectionalInfluenceAcceleration,
+        velocity.y + input_y * physics::kDirectionalInfluenceAcceleration,
+    };
+    const double candidate_speed = std::hypot(candidate.x, candidate.y);
+    if (candidate_speed <= 1e-9) return velocity;
+
+    const double launch_angle = std::atan2(launch.y, launch.x);
+    const double candidate_angle = std::atan2(candidate.y, candidate.x);
+    const double delta = std::remainder(candidate_angle - launch_angle, 2.0 * kPi);
+    const double max_rotation = physics::kDirectionalInfluenceMaxRotationDegrees
+                              * (kPi / 180.0);
+    const double clamped_angle = launch_angle
+        + std::clamp(delta, -max_rotation, max_rotation);
+
+    candidate.x = current_speed * std::cos(clamped_angle);
+    candidate.y = current_speed * std::sin(clamped_angle);
+
+    // DI may make a downward launch less downward, but must never exceed the
+    // original launch's downward component. An upward launch cannot be turned
+    // into a downward trajectory. Gravity is applied separately afterwards.
+    const double max_downward_component = launch.y > 0.0
+        ? velocity.y : 0.0;
+    if (candidate.y > max_downward_component) {
+        candidate.y = max_downward_component;
+        const double horizontal = std::sqrt(std::max(
+            0.0, current_speed * current_speed
+                 - candidate.y * candidate.y));
+        const double direction = candidate.x != 0.0 ? candidate.x : launch.x;
+        candidate.x = std::copysign(horizontal, direction);
+    }
+    return candidate;
+}
+
 // Apply gravity (and fast-fall, when held mid-air) to v without touching
 // horizontal velocity. Shared by Attacking and Hitstun motion paths.
 Vec2 apply_gravity_only(Vec2 v, bool fast_fall_held) {
@@ -39,6 +88,7 @@ void Fighter::respawn(const Arena& arena) {
     body_.w = kWidth;
     body_.h = kHeight;
     velocity_       = {0.0, 0.0};
+    di_reference_velocity_ = {0.0, 0.0};
     grounded_       = true;
     jumps_remaining_ = 2;
     dead_           = false;
@@ -53,6 +103,10 @@ void Fighter::respawn(const Arena& arena) {
     shield_ = combat::kShieldMax; guard_frames_ = 0; dodge_frame_ = 0;
     dodge_cooldown_ = 0; surge_frames_ = 0; parry_flash_ = 0;
     up_special_used_ = false; air_dodge_used_ = false;
+    tech_buffer_ticks_ = 0; tech_frames_ = 0;
+    ledge_lockout_ticks_ = 0; ledge_hang_ticks_ = 0;
+    ledge_invulnerability_used_ = false;
+    ledge_climb_x_ = 0.0f; ledge_platform_top_ = 0.0f;
 
     // First call (from the constructor) initializes stocks to the starting
     // value; subsequent calls (from Match on respawn) preserve the count so
@@ -83,6 +137,11 @@ void Fighter::reset_for_rematch() {
     shield_ = combat::kShieldMax; guard_frames_ = 0; dodge_frame_ = 0;
     dodge_cooldown_ = 0; surge_frames_ = 0; parry_flash_ = 0;
     up_special_used_ = false; air_dodge_used_ = false;
+    tech_buffer_ticks_ = 0; tech_frames_ = 0;
+    ledge_lockout_ticks_ = 0; ledge_hang_ticks_ = 0;
+    ledge_invulnerability_used_ = false;
+    ledge_climb_x_ = 0.0f; ledge_platform_top_ = 0.0f;
+    di_reference_velocity_ = Vec2{0.0, 0.0};
     damage_percent_ = 0;
     dead_           = false;
     invuln_frames_  = 0;
@@ -178,6 +237,14 @@ void Fighter::add_surge(int amount) {
 }
 
 void Fighter::stun_for(int frames) {
+    if (state_ == State::LedgeHang) {
+        ledge_lockout_ticks_ = physics::kLedgeRegrabLockoutTicks;
+        ledge_hang_ticks_ = 0;
+        grounded_ = false;
+    }
+    tech_buffer_ticks_ = 0;
+    tech_frames_ = 0;
+    di_reference_velocity_ = velocity_;
     hitstun_frames_ = frames < combat::kMinHitstunFrames ? combat::kMinHitstunFrames : frames;
     state_ = State::Hitstun;
     current_attack_id_ = AttackId::None;
@@ -226,35 +293,45 @@ void Fighter::advance_attack() {
 void Fighter::update(const PlayerIntent& motion_intent,
                      const CombatIntent& combat_intent,
                      const Arena& arena) {
-    if (dead_) {
-        return;
-    }
+    if (dead_) return;
 
-    // --- Invulnerability decay (M5) ----------------------------------------
-    if (invuln_frames_ > 0) {
-        --invuln_frames_;
-    }
-
-    // --- Timers (Rebirth) ---------------------------------------------------
+    // --- Tick-based defensive windows -------------------------------------
+    if (invuln_frames_ > 0) --invuln_frames_;
     if (dodge_cooldown_ > 0) --dodge_cooldown_;
-    if (parry_flash_ > 0)    --parry_flash_;
-    if (surge_frames_ > 0)   --surge_frames_;
+    if (parry_flash_ > 0) --parry_flash_;
+    if (surge_frames_ > 0) --surge_frames_;
+    if (ledge_lockout_ticks_ > 0) --ledge_lockout_ticks_;
+
+    const bool started_tick_in_air_hitstun = state_ == State::Hitstun && !grounded_;
+    if (started_tick_in_air_hitstun && combat_intent.shield_pressed) {
+        tech_buffer_ticks_ = physics::kTechInputBufferTicks;
+    } else if (tech_buffer_ticks_ > 0) {
+        --tech_buffer_ticks_;
+    }
 
     // --- State advance -----------------------------------------------------
     if (state_ == State::Hitstun) {
         if (--hitstun_frames_ <= 0) {
             hitstun_frames_ = 0;
-            state_          = State::Idle;
+            state_ = State::Idle;
+            di_reference_velocity_ = Vec2{0.0, 0.0};
         }
     }
-    if (state_ == State::Attacking) {
-        advance_attack();
-    }
+    if (state_ == State::Attacking) advance_attack();
     if (state_ == State::Dodge) {
         if (++dodge_frame_ >= combat::kDodgeFrames) {
             dodge_frame_ = 0;
             state_ = State::Idle;
         }
+    }
+    if (state_ == State::Tech) {
+        if (++tech_frames_ >= physics::kTechDurationTicks) {
+            tech_frames_ = 0;
+            state_ = State::Idle;
+        }
+    }
+    if (state_ == State::LedgeHang) {
+        ++ledge_hang_ticks_;
     }
     if (state_ == State::Guard) {
         ++guard_frames_;
@@ -273,24 +350,73 @@ void Fighter::update(const PlayerIntent& motion_intent,
         if (shield_ > combat::kShieldMax) shield_ = combat::kShieldMax;
     }
 
-    // --- Ember Surge activation ---------------------------------------------
+    // --- Ledge actions -----------------------------------------------------
+    bool ledge_action_taken = false;
+    bool ledge_climbed = false;
+    // Ledge hang freezes physics. Up climbs onto the platform, jump launches
+    // inward, and steering away (or timeout) drops the fighter cleanly.
+    if (state_ == State::LedgeHang) {
+        const bool jump = motion_intent.jump_pressed;
+        const bool climb = motion_intent.up_held;
+        const bool drop_away = (facing_ > 0 && motion_intent.move_left
+                                && !motion_intent.move_right)
+                            || (facing_ < 0 && motion_intent.move_right
+                                && !motion_intent.move_left);
+        if (jump) {
+            ledge_action_taken = true;
+            state_ = State::Idle;
+            velocity_.x = physics::kLedgeJumpHorizontalSpeed * facing_;
+            velocity_.y = physics::kLedgeJumpVelocity;
+            grounded_ = false;
+            jumps_remaining_ = 1;
+            jump_buffer_ticks_ = 0;
+            coyote_ticks_ = 0;
+            ledge_lockout_ticks_ = physics::kLedgeRegrabLockoutTicks;
+            ledge_hang_ticks_ = 0;
+        } else if (climb) {
+            ledge_action_taken = true;
+            ledge_climbed = true;
+            state_ = State::Idle;
+            body_.x = ledge_climb_x_;
+            body_.y = ledge_platform_top_ - body_.h;
+            velocity_ = Vec2{0.0, 0.0};
+            grounded_ = true;
+            jumps_remaining_ = 2;
+            jump_buffer_ticks_ = 0;
+            coyote_ticks_ = 0;
+            ledge_hang_ticks_ = 0;
+        } else if (drop_away || ledge_hang_ticks_ >= physics::kLedgeHangMaxTicks) {
+            ledge_action_taken = true;
+            state_ = State::Idle;
+            velocity_.x = -static_cast<double>(facing_) * 1.5;
+            velocity_.y = 2.5;
+            grounded_ = false;
+            ledge_lockout_ticks_ = physics::kLedgeRegrabLockoutTicks;
+            ledge_hang_ticks_ = 0;
+        } else {
+            velocity_ = Vec2{0.0, 0.0};
+            grounded_ = false;
+        }
+    }
+
+    // --- Ember Surge activation --------------------------------------------
     if (combat_intent.surge_pressed && surge_frames_ == 0
         && surge_meter_ >= combat::kSurgeMeterMax
-        && state_ != State::Hitstun) {
-        surge_meter_  = 0;
+        && state_ != State::Hitstun && state_ != State::LedgeHang) {
+        surge_meter_ = 0;
         surge_frames_ = combat::kSurgeFrames;
     }
 
-    // --- Dodge (from Idle or Guard) ----------------------------------------
+    // --- Dodge (from Idle or Guard) ---------------------------------------
     if ((state_ == State::Idle || state_ == State::Guard)
         && combat_intent.dodge_pressed && dodge_cooldown_ == 0
         && (grounded_ || !air_dodge_used_)) {
-        state_        = State::Dodge;
-        dodge_frame_  = 0;
+        state_ = State::Dodge;
+        dodge_frame_ = 0;
         guard_frames_ = 0;
         dodge_cooldown_ = combat::kDodgeCooldownFrames;
-        dodge_dir_ = motion_intent.move_right && !motion_intent.move_left ?  1
-                   : motion_intent.move_left  && !motion_intent.move_right ? -1 : 0;
+        dodge_dir_ = motion_intent.move_right && !motion_intent.move_left ? 1
+                   : motion_intent.move_left && !motion_intent.move_right ? -1 : 0;
         if (!grounded_) air_dodge_used_ = true;
     }
 
@@ -298,74 +424,245 @@ void Fighter::update(const PlayerIntent& motion_intent,
     if (state_ == State::Idle) {
         if (!try_start_attack(motion_intent, combat_intent)
             && combat_intent.shield_held && grounded_ && shield_ > 0) {
-            state_        = State::Guard;
+            state_ = State::Guard;
             guard_frames_ = 1;
         }
     }
 
-    // --- Facing update (only when idle; attacks and hitstun lock facing) ---
     if (state_ == State::Idle) {
-        if (motion_intent.move_left  && !motion_intent.move_right) facing_ = -1;
-        if (motion_intent.move_right && !motion_intent.move_left)  facing_ =  1;
+        if (motion_intent.move_left && !motion_intent.move_right) facing_ = -1;
+        if (motion_intent.move_right && !motion_intent.move_left) facing_ = 1;
     }
 
     // --- Motion ------------------------------------------------------------
-    if (state_ == State::Idle) {
+    const bool is_hanging = state_ == State::LedgeHang;
+    if (is_hanging || ledge_climbed) {
+        // No integration or collision while attached to a ledge or on the
+        // exact tick the climb transition places the fighter on the platform.
+    } else if (ledge_action_taken) {
+        // A ledge jump/drop is already a fully-resolved movement decision;
+        // do not feed its jump edge back into the normal jump-buffer system.
+        velocity_ = apply_gravity_only(velocity_, false);
+    } else if (state_ == State::Idle) {
         const bool drop_through = motion_intent.fast_fall_held
             && motion_intent.jump_pressed && grounded_
             && arena.supported_by_one_way(body_);
         PlayerIntent effective_intent = motion_intent;
         if (drop_through) effective_intent.jump_pressed = false;
-        const MotionState in{velocity_, grounded_, jumps_remaining_, jump_buffer_ticks_, coyote_ticks_};
+        const MotionState in{velocity_, grounded_, jumps_remaining_,
+                             jump_buffer_ticks_, coyote_ticks_};
         const MotionResult out = step_motion(in, effective_intent);
-        velocity_        = out.velocity;
+        velocity_ = out.velocity;
         jumps_remaining_ = out.jumps_remaining;
         jump_buffer_ticks_ = out.jump_buffer_ticks;
         coyote_ticks_ = out.coyote_ticks;
+    } else if (state_ == State::Tech) {
+        velocity_.x *= 0.62;
+        if (velocity_.x > -0.08 && velocity_.x < 0.08) velocity_.x = 0.0;
+        velocity_.y = 0.0;
     } else if (state_ == State::Guard) {
         velocity_.x *= 0.5;
         velocity_ = apply_gravity_only(velocity_, false);
     } else if (state_ == State::Dodge) {
         velocity_.x = combat::kDodgeSpeed * dodge_dir_;
-        if (grounded_) {
-            velocity_ = apply_gravity_only(velocity_, false);
-        } else {
-            velocity_.y = 0.0;   // air dodge hovers for its duration
-        }
+        if (grounded_) velocity_ = apply_gravity_only(velocity_, false);
+        else velocity_.y = 0.0;
     } else {
-        // Attacking or Hitstun: gravity only; horizontal momentum is kept
-        // (the M7 AI is tuned around this slide; revisit in the AI pass).
+        // Directional influence is applied only in airborne hitstun. It is
+        // clamped to the original knockback angle and cannot steer further
+        // downward into the stage.
+        if (state_ == State::Hitstun && !grounded_) {
+            const double dx = motion_intent.move_right == motion_intent.move_left
+                ? 0.0 : (motion_intent.move_right ? 1.0 : -1.0);
+            const double dy = motion_intent.up_held == motion_intent.fast_fall_held
+                ? 0.0 : (motion_intent.up_held ? -1.0 : 1.0);
+            velocity_ = apply_directional_influence(
+                velocity_, di_reference_velocity_, dx, dy);
+        }
         velocity_ = apply_gravity_only(velocity_, motion_intent.fast_fall_held);
     }
 
-    // --- Integrate position + resolve collision ----------------------------
-    // High-speed knockback is advanced in bounded substeps so a fighter
-    // cannot tunnel through a platform in one large per-tick displacement.
-    const bool drop_through = state_ == State::Idle
-        && motion_intent.fast_fall_held && motion_intent.jump_pressed
-        && arena.supported_by_one_way(body_);
-    grounded_ = arena.move_and_resolve(body_, velocity_, drop_through);
-    if (grounded_) { up_special_used_ = false; air_dodge_used_ = false; jumps_remaining_ = 2; }
-    // M5 note: the death-zone check used to live here, but it needed to
-    // happen BEFORE Fighter::update so Match could still decrement
-    // stocks and start the respawn timer in the same frame. Match now owns
-    // the alive->dead transition; Fighter::update just leaves dead_ alone.
+    // --- Integrate and resolve collision -----------------------------------
+    if (!is_hanging && !ledge_climbed) {
+        const bool drop_through = state_ == State::Idle
+            && motion_intent.fast_fall_held && motion_intent.jump_pressed
+            && arena.supported_by_one_way(body_);
+        const bool was_grounded = grounded_;
+        if (state_ == State::Tech) {
+            // Tech movement is a grounded horizontal roll. Probe one pixel
+            // below the feet afterwards so walking off the platform ends the
+            // grounded recovery instead of levitating at its edge.
+            arena.move_and_resolve(body_, velocity_);
+            Aabb support_probe = body_;
+            support_probe.y += 1.0f;
+            Vec2 probe_velocity{0.0, 1.0};
+            grounded_ = arena.resolve_collision(support_probe, probe_velocity);
+            if (!grounded_) state_ = State::Idle;
+        } else {
+            grounded_ = arena.move_and_resolve(body_, velocity_, drop_through);
+        }
 
-    // --- M6-B: animation driver tick --------------------------------------
-    // Tick the driver with the freshly-resolved grounded flag and the
-    // post-attack / post-hitstun state, then pin the sprite to the
-    // resulting global frame. We use the absolute value of horizontal
-    // velocity for the walk threshold (movement direction doesn't
-    // matter to the animation - "is the fighter running?" is enough).
+        // A fresh shield press buffered during airborne hitstun becomes a
+        // tech when the fighter lands within the eight-tick input window.
+        if (!was_grounded && grounded_ && tech_buffer_ticks_ > 0
+            && (state_ == State::Hitstun || state_ == State::Idle)) {
+            state_ = State::Tech;
+            hitstun_frames_ = 0;
+            tech_buffer_ticks_ = 0;
+            tech_frames_ = 0;
+            velocity_.y = 0.0;
+            if (motion_intent.move_left != motion_intent.move_right) {
+                velocity_.x = motion_intent.move_right ? 4.5 : -4.5;
+            } else {
+                velocity_.x *= 0.35;
+            }
+        }
+
+        // Falling near a platform edge can be caught. The arena computes the
+        // deterministic hang and climb anchors; Fighter owns the state change.
+        if (!grounded_ && ledge_lockout_ticks_ == 0
+            && state_ != State::Tech && state_ != State::LedgeHang) {
+            const LedgeGrab ledge = arena.find_ledge_grab(body_, velocity_, facing_);
+            if (ledge.found) {
+                body_.x = ledge.hang_x;
+                body_.y = ledge.hang_y;
+                velocity_ = Vec2{0.0, 0.0};
+                facing_ = ledge.facing_inward;
+                state_ = State::LedgeHang;
+                current_attack_id_ = AttackId::None;
+                attack_frame_ = 0;
+                attack_has_hit_ = false;
+                ledge_climb_x_ = ledge.climb_x;
+                ledge_platform_top_ = ledge.platform_top;
+                ledge_hang_ticks_ = 0;
+                tech_buffer_ticks_ = 0;
+                hitstun_frames_ = 0;
+                if (!ledge_invulnerability_used_) {
+                    invuln_frames_ = std::max(
+                        invuln_frames_, physics::kLedgeInvulnerabilityTicks);
+                    ledge_invulnerability_used_ = true;
+                }
+                grounded_ = false;
+            }
+        }
+    }
+
+    if (grounded_) {
+        up_special_used_ = false;
+        air_dodge_used_ = false;
+        ledge_invulnerability_used_ = false;
+        jumps_remaining_ = 2;
+    }
+
+    // --- Animation driver tick --------------------------------------------
     const anim::Context actx{
-        /*.grounded=*/        grounded_,
-        /*.dead=*/            dead_,
-        /*.attacking=*/       state_ == State::Attacking,
-        /*.in_hitstun=*/      state_ == State::Hitstun,
+        /*.grounded=*/ grounded_,
+        /*.dead=*/ dead_,
+        /*.attacking=*/ state_ == State::Attacking,
+        /*.in_hitstun=*/ state_ == State::Hitstun,
         /*.horizontal_speed=*/ static_cast<float>(velocity_.x < 0 ? -velocity_.x : velocity_.x),
     };
     anim_driver_.tick(actx);
     if (sprite_) sprite_->set_current_frame(anim_driver_.global_frame());
+}
+
+Fighter::Snapshot Fighter::capture_state() const {
+    return Snapshot{
+        player_index_, body_, velocity_, di_reference_velocity_, grounded_, jumps_remaining_,
+        jump_buffer_ticks_, coyote_ticks_, dead_, damage_percent_, facing_,
+        state_, current_attack_id_, attack_frame_, attack_has_hit_,
+        hitstun_frames_, stocks_, invuln_frames_, shield_, guard_frames_,
+        dodge_frame_, dodge_cooldown_, dodge_dir_, surge_meter_, surge_frames_,
+        parry_flash_, up_special_used_, air_dodge_used_,
+        ledge_invulnerability_used_, tech_buffer_ticks_,
+        tech_frames_, ledge_lockout_ticks_, ledge_hang_ticks_,
+        ledge_climb_x_, ledge_platform_top_, anim_driver_.capture()
+    };
+}
+
+bool Fighter::restore_state(const Snapshot& snapshot) {
+    if (snapshot.player_index != player_index_
+        || static_cast<int>(snapshot.state) < static_cast<int>(State::Idle)
+        || static_cast<int>(snapshot.state) > static_cast<int>(State::LedgeHang)
+        || static_cast<int>(snapshot.current_attack_id) < static_cast<int>(AttackId::None)
+        || static_cast<int>(snapshot.current_attack_id) >= static_cast<int>(AttackId::Count)
+        || !std::isfinite(snapshot.body.x) || !std::isfinite(snapshot.body.y)
+        || !std::isfinite(snapshot.body.w) || !std::isfinite(snapshot.body.h)
+        || !std::isfinite(snapshot.velocity.x) || !std::isfinite(snapshot.velocity.y)
+        || !std::isfinite(snapshot.di_reference_velocity.x)
+        || !std::isfinite(snapshot.di_reference_velocity.y)
+        || !std::isfinite(snapshot.ledge_climb_x)
+        || !std::isfinite(snapshot.ledge_platform_top)
+        || snapshot.body.w <= 0.0f || snapshot.body.h <= 0.0f
+        || (snapshot.facing != -1 && snapshot.facing != 1)
+        || snapshot.jumps_remaining < 0 || snapshot.jumps_remaining > 2
+        || snapshot.jump_buffer_ticks < 0 || snapshot.coyote_ticks < 0
+        || snapshot.damage_percent < 0 || snapshot.damage_percent > combat::kMaxDamagePercent
+        || snapshot.attack_frame < 0 || snapshot.hitstun_frames < 0
+        || snapshot.stocks < 0 || snapshot.invuln_frames < 0
+        || snapshot.shield < 0 || snapshot.guard_frames < 0
+        || snapshot.dodge_frame < 0 || snapshot.dodge_cooldown < 0
+        || snapshot.dodge_dir < -1 || snapshot.dodge_dir > 1
+        || snapshot.shield > combat::kShieldMax
+        || snapshot.surge_meter < 0 || snapshot.surge_meter > combat::kSurgeMeterMax
+        || snapshot.surge_frames < 0 || snapshot.parry_flash < 0
+        || snapshot.tech_buffer_ticks < 0
+        || snapshot.tech_buffer_ticks > physics::kTechInputBufferTicks
+        || snapshot.tech_frames < 0 || snapshot.tech_frames >= physics::kTechDurationTicks
+        || snapshot.ledge_lockout_ticks < 0
+        || snapshot.ledge_lockout_ticks > physics::kLedgeRegrabLockoutTicks
+        || snapshot.ledge_hang_ticks < 0
+        || snapshot.ledge_hang_ticks >= physics::kLedgeHangMaxTicks
+        || (snapshot.state == State::Attacking
+            && (snapshot.current_attack_id == AttackId::None
+                || snapshot.attack_frame >= attack_total_frames(
+                    get_attack(snapshot.current_attack_id))))
+        || (snapshot.state != State::Attacking
+            && snapshot.current_attack_id != AttackId::None)) {
+        return false;
+    }
+
+    // Validate animation data before mutating the fighter.
+    anim::Driver candidate;
+    if (!candidate.restore(snapshot.animation)) return false;
+
+    body_ = snapshot.body;
+    velocity_ = snapshot.velocity;
+    di_reference_velocity_ = snapshot.di_reference_velocity;
+    grounded_ = snapshot.grounded;
+    jumps_remaining_ = snapshot.jumps_remaining;
+    jump_buffer_ticks_ = snapshot.jump_buffer_ticks;
+    coyote_ticks_ = snapshot.coyote_ticks;
+    dead_ = snapshot.dead;
+    damage_percent_ = snapshot.damage_percent;
+    facing_ = snapshot.facing;
+    state_ = snapshot.state;
+    current_attack_id_ = snapshot.current_attack_id;
+    attack_frame_ = snapshot.attack_frame;
+    attack_has_hit_ = snapshot.attack_has_hit;
+    hitstun_frames_ = snapshot.hitstun_frames;
+    stocks_ = snapshot.stocks;
+    invuln_frames_ = snapshot.invuln_frames;
+    shield_ = snapshot.shield;
+    guard_frames_ = snapshot.guard_frames;
+    dodge_frame_ = snapshot.dodge_frame;
+    dodge_cooldown_ = snapshot.dodge_cooldown;
+    dodge_dir_ = snapshot.dodge_dir;
+    surge_meter_ = snapshot.surge_meter;
+    surge_frames_ = snapshot.surge_frames;
+    parry_flash_ = snapshot.parry_flash;
+    up_special_used_ = snapshot.up_special_used;
+    air_dodge_used_ = snapshot.air_dodge_used;
+    ledge_invulnerability_used_ = snapshot.ledge_invulnerability_used;
+    tech_buffer_ticks_ = snapshot.tech_buffer_ticks;
+    tech_frames_ = snapshot.tech_frames;
+    ledge_lockout_ticks_ = snapshot.ledge_lockout_ticks;
+    ledge_hang_ticks_ = snapshot.ledge_hang_ticks;
+    ledge_climb_x_ = snapshot.ledge_climb_x;
+    ledge_platform_top_ = snapshot.ledge_platform_top;
+    anim_driver_ = candidate;
+    if (sprite_) sprite_->set_current_frame(anim_driver_.global_frame());
+    return true;
 }
 
 void Fighter::apply_hit(int damage, Vec2 knockback_velocity, int hitstun) {
@@ -377,7 +674,15 @@ void Fighter::apply_hit(int damage, Vec2 knockback_velocity, int hitstun) {
     if (damage_percent_ > combat::kMaxDamagePercent) {
         damage_percent_ = combat::kMaxDamagePercent;
     }
+    if (state_ == State::LedgeHang) {
+        ledge_lockout_ticks_ = physics::kLedgeRegrabLockoutTicks;
+        ledge_hang_ticks_ = 0;
+        grounded_ = false;
+    }
+    tech_buffer_ticks_ = 0;
+    tech_frames_ = 0;
     velocity_        = knockback_velocity;
+    di_reference_velocity_ = knockback_velocity;
     hitstun_frames_  = hitstun < combat::kMinHitstunFrames
                        ? combat::kMinHitstunFrames
                        : hitstun;

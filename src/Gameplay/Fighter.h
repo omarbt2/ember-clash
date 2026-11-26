@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <memory>
+#include <type_traits>
 
 namespace ember {
 
@@ -31,10 +32,55 @@ public:
         Dead,        // off-stage; Match handles the respawn transition
         Guard,       // Rebirth: shielding on the ground
         Dodge,       // Rebirth: spot / directional dodge with invuln window
+        Tech,        // defensive landing recovery after a buffered tech input
+        LedgeHang,   // hanging from a stage edge, awaiting jump/climb/drop
     };
 
     // Result of an incoming attack, reported to Match.
     enum class HitOutcome { Ignored, Hit, Blocked, Parried, Dodged };
+
+    // Complete value-only fighter simulation snapshot. Sprite ownership is
+    // presentation-only; its animation driver state is included so a restore
+    // also resumes the same visual frame without serializing an SDL texture.
+    struct Snapshot {
+        int player_index{0};
+        Aabb body{};
+        Vec2 velocity{};
+        Vec2 di_reference_velocity{};
+        bool grounded{false};
+        int jumps_remaining{2};
+        int jump_buffer_ticks{0};
+        int coyote_ticks{0};
+        bool dead{false};
+        int damage_percent{0};
+        int facing{1};
+        State state{State::Idle};
+        AttackId current_attack_id{AttackId::None};
+        int attack_frame{0};
+        bool attack_has_hit{false};
+        int hitstun_frames{0};
+        int stocks{0};
+        int invuln_frames{0};
+        int shield{0};
+        int guard_frames{0};
+        int dodge_frame{0};
+        int dodge_cooldown{0};
+        int dodge_dir{0};
+        int surge_meter{0};
+        int surge_frames{0};
+        int parry_flash{0};
+        bool up_special_used{false};
+        bool air_dodge_used{false};
+        bool ledge_invulnerability_used{false};
+        int tech_buffer_ticks{0};
+        int tech_frames{0};
+        int ledge_lockout_ticks{0};
+        int ledge_hang_ticks{0};
+        float ledge_climb_x{0.0f};
+        float ledge_platform_top{0.0f};
+        anim::Driver::Snapshot animation{};
+    };
+    static_assert(std::is_trivially_copyable_v<Snapshot>);
 
     // 0 = P1, 1 = P2. Determines spawn position (via Arena) and palette.
     Fighter(int player_index, const Arena& arena);
@@ -76,6 +122,12 @@ public:
     int  parry_flash() const { return parry_flash_; }
     bool up_special_used() const { return up_special_used_; }
     bool air_dodge_used() const { return air_dodge_used_; }
+    int tech_buffer_ticks() const { return tech_buffer_ticks_; }
+    int tech_frames() const { return tech_frames_; }
+    int ledge_lockout_ticks() const { return ledge_lockout_ticks_; }
+    int ledge_hang_ticks() const { return ledge_hang_ticks_; }
+    bool ledge_invulnerability_used() const { return ledge_invulnerability_used_; }
+    bool is_ledge_hanging() const { return state_ == State::LedgeHang; }
     void mark_attack_hit() { attack_has_hit_ = true; }
     void add_surge(int amount);
     void stun_for(int frames);   // generic stun (parried attacker, shield break)
@@ -140,12 +192,16 @@ public:
     void set_parry_flash_for_test(int frames) { parry_flash_ = frames; }
     void set_up_special_used_for_test(bool used) { up_special_used_ = used; }
     void set_air_dodge_used_for_test(bool used) { air_dodge_used_ = used; }
+    void set_grounded_for_test(bool grounded) { grounded_ = grounded; }
 
     // One fixed simulation tick. Motion/combat intents are platform-agnostic;
     // all timers and tuning values advance exactly once per call.
     void update(const PlayerIntent& motion_intent,
                 const CombatIntent& combat_intent,
                 const Arena& arena);
+
+    Snapshot capture_state() const;
+    bool restore_state(const Snapshot& snapshot);
 
     // Applies a hit from an external attacker. Sets damage, knockback
     // velocity, hitstun, and transitions to Hitstun. No effect on a dead
@@ -169,6 +225,7 @@ private:
     int   player_index_{0};
     Aabb  body_{};
     Vec2  velocity_{};
+    Vec2  di_reference_velocity_{};
     bool  grounded_{false};
     int   jumps_remaining_{2};
     int   jump_buffer_ticks_{0};
@@ -215,6 +272,13 @@ private:
     int   parry_flash_{0};
     bool  up_special_used_{false};
     bool  air_dodge_used_{false};
+    bool  ledge_invulnerability_used_{false};
+    int   tech_buffer_ticks_{0};
+    int   tech_frames_{0};
+    int   ledge_lockout_ticks_{0};
+    int   ledge_hang_ticks_{0};
+    float ledge_climb_x_{0.0f};
+    float ledge_platform_top_{0.0f};
 
     bool try_start_attack(const PlayerIntent& motion_intent,
                           const CombatIntent& combat_intent);

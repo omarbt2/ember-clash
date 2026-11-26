@@ -60,6 +60,13 @@ struct Context {
 // pose or advance the frame.
 class Driver {
 public:
+    struct Snapshot {
+        Timing timing{};
+        Sprite::AnimationKind pose{Sprite::AnimationKind::Idle};
+        int frame_in_pose{0};
+        int ticks_until_next{30};
+    };
+
     explicit Driver(Timing timing = Timing{}) : timing_(timing) {}
 
     // Pose currently selected. Useful for tests and for any debug
@@ -111,6 +118,50 @@ public:
 
     // Allow tests to inject a different timing profile.
     void set_timing(Timing t) { timing_ = t; }
+    Snapshot capture() const {
+        return Snapshot{timing_, pose_, frame_in_pose_, ticks_until_next_};
+    }
+    bool restore(const Snapshot& snapshot) {
+        if (snapshot.frame_in_pose < 0 || snapshot.frame_in_pose > 1
+            || snapshot.ticks_until_next < 1
+            || snapshot.timing.idle_ticks_per_frame < 1
+            || snapshot.timing.walk_ticks_per_frame < 1
+            || snapshot.timing.jump_ticks_per_frame < 1
+            || snapshot.timing.attack_ticks_per_frame < 1
+            || snapshot.timing.hitstun_ticks_per_frame < 1
+            || static_cast<int>(snapshot.pose) < 0
+            || static_cast<int>(snapshot.pose) > static_cast<int>(Sprite::AnimationKind::Hitstun)) {
+            return false;
+        }
+        if (snapshot.pose != Sprite::AnimationKind::Walk
+            && snapshot.frame_in_pose != 0) return false;
+        int max_ticks = snapshot.timing.idle_ticks_per_frame;
+        switch (snapshot.pose) {
+            case Sprite::AnimationKind::Idle:
+                max_ticks = snapshot.timing.idle_ticks_per_frame;
+                break;
+            case Sprite::AnimationKind::Walk:
+                max_ticks = snapshot.timing.walk_ticks_per_frame;
+                break;
+            case Sprite::AnimationKind::Jump:
+                max_ticks = snapshot.timing.jump_ticks_per_frame;
+                break;
+            case Sprite::AnimationKind::Attack:
+                max_ticks = snapshot.timing.attack_ticks_per_frame;
+                break;
+            case Sprite::AnimationKind::Hitstun:
+                max_ticks = snapshot.timing.hitstun_ticks_per_frame;
+                break;
+            case Sprite::AnimationKind::_Count:
+                return false;
+        }
+        if (snapshot.ticks_until_next > max_ticks) return false;
+        timing_ = snapshot.timing;
+        pose_ = snapshot.pose;
+        frame_in_pose_ = snapshot.frame_in_pose;
+        ticks_until_next_ = snapshot.ticks_until_next;
+        return true;
+    }
 
 private:
     Timing timing_{};

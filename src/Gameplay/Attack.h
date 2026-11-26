@@ -44,6 +44,7 @@ struct CombatIntent {
     bool special_pressed = false;  // special button (direction picks which)
     bool smash_held      = false;  // modifier: strong button becomes a smash
     bool shield_held     = false;  // guard (parry window on the first frames)
+    bool shield_pressed  = false;  // edge: also used for the buffered landing tech
     bool dodge_pressed   = false;  // spot / directional dodge
     bool surge_pressed   = false;  // activate Ember Surge when the meter is full
 };

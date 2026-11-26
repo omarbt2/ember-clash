@@ -38,4 +38,19 @@ inline constexpr double kTerminalVelocity = 16.0;
 // Multiplier applied to gravity when fast-falling.
 inline constexpr double kFastFallMultiplier = 1.5;
 
+// Directional influence is constrained to a small angle around the original
+// launch vector. Input changes direction, not the launch speed.
+inline constexpr double kDirectionalInfluenceAcceleration = 0.14;
+inline constexpr double kDirectionalInfluenceMaxRotationDegrees = 15.0;
+
+// Defensive recovery windows are measured in fixed simulation ticks. A shield
+// edge buffered in the final eight ticks before landing becomes a tech.
+inline constexpr int kTechInputBufferTicks = 8;
+inline constexpr int kTechDurationTicks = 10;
+inline constexpr int kLedgeInvulnerabilityTicks = 40;
+inline constexpr int kLedgeRegrabLockoutTicks = 12;
+inline constexpr int kLedgeHangMaxTicks = 180;
+inline constexpr double kLedgeJumpVelocity = -12.0;
+inline constexpr double kLedgeJumpHorizontalSpeed = 3.5;
+
 } // namespace ember::physics

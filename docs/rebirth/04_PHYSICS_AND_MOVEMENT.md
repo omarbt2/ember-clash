@@ -17,7 +17,7 @@ Evidence tags: VERIFIED, PARTIALLY VERIFIED, UNVERIFIED, MISSING, BROKEN. Shared
 ## 1. Implementation checkpoint (PARTIALLY VERIFIED)
 Constants in `PhysicsConfig.h` are authored per 60 Hz tick (kWalkSpeed 6.0 px/tick, gravity, air control factor). Positions/velocities remain floating point; the numeric representation decision D-002 is still open. `step_motion` is a pure function of state, intent and tuning, and no longer accepts `dt` in the current local continuation work. Two jumps, jump buffer, coyote time, run/dash and drop-through foundations are present. Four-sided blast zones are now represented as arena data, and platform motion uses bounded substeps (maximum 16 px per substep) to prevent high-speed tunnelling.
 
-Ledge grabbing/recovery, DI, tech and the approved complete movement feel pass remain missing/unverified. See [P2 fixed-step and collision evidence](evidence/p2-fixed-step-and-collision-recheck-2026-11-26.md).
+DI, buffered landing tech, and main-stage ledge recovery now have a local implementation with focused GCC/Clang headless coverage; official SDL3 build and feel tuning remain unverified. DI is constrained to a 15-degree window and may not increase the downward component. Tech uses a shield press buffered for eight ticks. Ledge grabs require inward facing and grant 40 ticks of invulnerability once per airtime. See [P2 recovery and snapshot evidence](evidence/p2-di-tech-ledge-snapshot-2026-11-26.md) and [P2 fixed-step and collision evidence](evidence/p2-fixed-step-and-collision-recheck-2026-11-26.md).
 
 ## 2. Time model and the dt question (answers Correction C1)
 - World unit = 1 px at logical 1280x720 [SC-8]. Tick = 1/60 s [SC-1].
@@ -39,10 +39,10 @@ Ledge grabbing/recovery, DI, tech and the approved complete movement feel pass r
 | Fast fall | down in air after apex | 1.6x | cancels on landing | - | - |
 | Landing | land after aerial | landing lag per move | lag cancel none | lag tests | - |
 | Drop-through | down + jump on pass-through platform | 6-tick ignore | not on main floor | platform test | - |
-| Ledge | within 24 px of edge, falling, facing | grab 40-tick invuln first time per airtime | contention (4P): first claimant keeps; others pushed | ledge scenario | - |
+| Ledge | within 24 px of a grabbable edge, falling, facing inward | grab 40-tick invuln first time per airtime | contention (4P): first claimant keeps; others pushed | locally tested on main-stage edges; 4P contention remains open | - |
 | Wall | optional: none at launch; blast zones only | - | deferred to post-launch (no wall jump) | - | - |
-| Hitstun movement | knockback vector | decay 0.98/t, bounce on floor if KB > threshold | tech window 8 ticks pre-landing (PROPOSED) | tech test | - |
-| DI | direction held in hitstun | rotation <= 15 deg | cannot rotate into floor | angle tests | - |
+| Hitstun movement | knockback vector | decay 0.98/t, bounce on floor if KB > threshold | shield edge buffered for up to 8 ticks before landing (PROPOSED) | buffered landing-tech test | - |
+| DI | direction held in airborne hitstun | rotation <= 15 deg from launch vector | cannot increase downward component toward stage | angle/groundward-input tests | - |
 | Collision | AABB vs platforms | resolve X then Y, 1 px slop | tunnelling guard: max step 16 px/substep | no-tunnel fuzz test | - |
 | Moving platforms | not in first release | - | deferred | - | - |
 | Camera | tracks fighters midpoint | zoom 0.8-1.2, smoothing 8 ticks, clamp to stage camera bounds | presentation only, floating-point OK | - | readability pass |

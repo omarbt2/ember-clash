@@ -423,6 +423,102 @@ const Fighter& Match::fighter(int index) const {
 // diagnostic for identical builds/configurations; it does not promise
 // cross-platform floating-point determinism.
 // --------------------------------------------------------------------
+Match::Snapshot Match::capture_state() const {
+    Snapshot snapshot{};
+    snapshot.version = 1;
+    snapshot.arena_id = arena_id_;
+    for (int i = 0; i < kFighterCount; ++i) {
+        snapshot.fighters[static_cast<std::size_t>(i)] = fighters_[i]->capture_state();
+        snapshot.has_ai[static_cast<std::size_t>(i)] = ai_[i] != nullptr;
+        if (ai_[i]) {
+            snapshot.ai[static_cast<std::size_t>(i)] = ai_[i]->capture();
+        }
+    }
+    snapshot.training = training_recorder_.capture();
+    snapshot.respawn_timer = respawn_timer_;
+    snapshot.ko_banner_ticks = ko_banner_ticks_;
+    snapshot.phase = phase_;
+    snapshot.last_hit_x = last_hit_.x;
+    snapshot.last_hit_y = last_hit_.y;
+    snapshot.last_hit_valid = last_hit_.valid;
+    snapshot.hit_spark_age = hit_spark_age_;
+    snapshot.match_startup_ticks = match_startup_ticks_;
+    snapshot.intro_banner_state = intro_banner_state_;
+    snapshot.live_ticks = live_ticks_;
+    snapshot.hit_stop_frames = hit_stop_frames_;
+    snapshot.ko_shake_frames = ko_shake_frames_;
+    snapshot.ko_shake_offset_x = ko_shake_offset_x_;
+    snapshot.ko_shake_offset_y = ko_shake_offset_y_;
+    snapshot.shake_rng_state = shake_rng_state_;
+    return snapshot;
+}
+
+bool Match::restore_state(const Snapshot& snapshot) {
+    if (snapshot.version != 1
+        || static_cast<int>(snapshot.arena_id) < static_cast<int>(Arena::Id::TrainingRing)
+        || static_cast<int>(snapshot.arena_id) > static_cast<int>(Arena::Id::SkyTemple)
+        || static_cast<int>(snapshot.phase) < static_cast<int>(Phase::Fighting)
+        || static_cast<int>(snapshot.phase) > static_cast<int>(Phase::MatchOver)
+        || !std::isfinite(snapshot.last_hit_x) || !std::isfinite(snapshot.last_hit_y)
+        || !std::isfinite(snapshot.ko_shake_offset_x)
+        || !std::isfinite(snapshot.ko_shake_offset_y)
+        || snapshot.ko_banner_ticks < 0 || snapshot.hit_spark_age < 0
+        || snapshot.match_startup_ticks < 0
+        || snapshot.intro_banner_state < 0 || snapshot.intro_banner_state > 2
+        || snapshot.live_ticks < 0 || snapshot.hit_stop_frames < 0
+        || snapshot.ko_shake_frames < 0) {
+        return false;
+    }
+    for (int timer : snapshot.respawn_timer) {
+        if (timer < -1) return false;
+    }
+
+    // Validate and build all replacement objects before changing the live
+    // match. An invalid snapshot therefore leaves the current simulation intact.
+    Arena candidate_arena;
+    candidate_arena.reset(snapshot.arena_id);
+
+    std::array<std::unique_ptr<Fighter>, kFighterCount> candidate_fighters{};
+    std::array<std::unique_ptr<AiController>, kFighterCount> candidate_ai{};
+    for (int i = 0; i < kFighterCount; ++i) {
+        candidate_fighters[static_cast<std::size_t>(i)] =
+            std::make_unique<Fighter>(i, candidate_arena);
+        if (!candidate_fighters[static_cast<std::size_t>(i)]->restore_state(
+                snapshot.fighters[static_cast<std::size_t>(i)])) {
+            return false;
+        }
+        if (snapshot.has_ai[static_cast<std::size_t>(i)]) {
+            const auto& ai_snapshot = snapshot.ai[static_cast<std::size_t>(i)];
+            auto controller = std::make_unique<AiController>(ai_snapshot.difficulty);
+            if (!controller->restore(ai_snapshot)) return false;
+            candidate_ai[static_cast<std::size_t>(i)] = std::move(controller);
+        }
+    }
+    training::Recorder candidate_training;
+    if (!candidate_training.restore(snapshot.training)) return false;
+
+    arena_ = candidate_arena;
+    arena_id_ = snapshot.arena_id;
+    fighters_ = std::move(candidate_fighters);
+    ai_ = std::move(candidate_ai);
+    training_recorder_ = candidate_training;
+    respawn_timer_ = snapshot.respawn_timer;
+    ko_banner_ticks_ = snapshot.ko_banner_ticks;
+    phase_ = snapshot.phase;
+    last_hit_ = HitEvent{snapshot.last_hit_x, snapshot.last_hit_y,
+                         snapshot.last_hit_valid};
+    hit_spark_age_ = snapshot.hit_spark_age;
+    match_startup_ticks_ = snapshot.match_startup_ticks;
+    intro_banner_state_ = snapshot.intro_banner_state;
+    live_ticks_ = snapshot.live_ticks;
+    hit_stop_frames_ = snapshot.hit_stop_frames;
+    ko_shake_frames_ = snapshot.ko_shake_frames;
+    ko_shake_offset_x_ = snapshot.ko_shake_offset_x;
+    ko_shake_offset_y_ = snapshot.ko_shake_offset_y;
+    shake_rng_state_ = snapshot.shake_rng_state;
+    return true;
+}
+
 std::uint64_t Match::state_hash() const {
     static_assert(sizeof(float) == sizeof(std::uint32_t));
     static_assert(sizeof(double) == sizeof(std::uint64_t));
@@ -461,6 +557,8 @@ std::uint64_t Match::state_hash() const {
         mix_f32(platform.aabb.y);
         mix_f32(platform.aabb.w);
         mix_f32(platform.aabb.h);
+        mix_bool(platform.one_way);
+        mix_bool(platform.ledge_grabbable);
     }
     mix_f32(arena_.blast_zone().left);
     mix_f32(arena_.blast_zone().right);
@@ -505,6 +603,27 @@ std::uint64_t Match::state_hash() const {
         mix32(static_cast<std::uint32_t>(f.parry_flash()));
         mix_bool(f.up_special_used());
         mix_bool(f.air_dodge_used());
+        mix32(static_cast<std::uint32_t>(f.tech_buffer_ticks()));
+        mix32(static_cast<std::uint32_t>(f.tech_frames()));
+        mix32(static_cast<std::uint32_t>(f.ledge_lockout_ticks()));
+        mix32(static_cast<std::uint32_t>(f.ledge_hang_ticks()));
+        const Fighter::Snapshot fighter_state = f.capture_state();
+        mix_f64(fighter_state.di_reference_velocity.x);
+        mix_f64(fighter_state.di_reference_velocity.y);
+        mix_bool(fighter_state.ledge_invulnerability_used);
+        mix_f32(fighter_state.ledge_climb_x);
+        mix_f32(fighter_state.ledge_platform_top);
+        // Animation timing affects the next visible frame and is included so
+        // snapshots that restore a different animation cursor cannot hash as
+        // equivalent simulation checkpoints.
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.pose));
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.frame_in_pose));
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.ticks_until_next));
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.timing.idle_ticks_per_frame));
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.timing.walk_ticks_per_frame));
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.timing.jump_ticks_per_frame));
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.timing.attack_ticks_per_frame));
+        mix32(static_cast<std::uint32_t>(fighter_state.animation.timing.hitstun_ticks_per_frame));
     }
 
     // --- AI controller state and tuning ---
@@ -554,6 +673,7 @@ std::uint64_t Match::state_hash() const {
         mix_bool(combat.special_pressed);
         mix_bool(combat.smash_held);
         mix_bool(combat.shield_held);
+        mix_bool(combat.shield_pressed);
         mix_bool(combat.dodge_pressed);
         mix_bool(combat.surge_pressed);
     }

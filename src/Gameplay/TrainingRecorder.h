@@ -21,6 +21,15 @@ struct RecordedFrame {
 
 class Recorder {
 public:
+    struct Snapshot {
+        std::array<RecordedFrame, kMaxRecordedTicks> frames{};
+        std::size_t count{0};
+        std::size_t cursor{0};
+        bool recording{false};
+        bool playing{false};
+        bool overflowed{false};
+    };
+
     bool start_recording() {
         count_ = 0;
         cursor_ = 0;
@@ -71,6 +80,23 @@ public:
     bool overflowed() const { return overflowed_; }
     const RecordedFrame* frame_at(std::size_t index) const {
         return index < count_ ? &frames_[index] : nullptr;
+    }
+    Snapshot capture() const {
+        return Snapshot{frames_, count_, cursor_, recording_, playing_, overflowed_};
+    }
+    bool restore(const Snapshot& snapshot) {
+        if (snapshot.count > frames_.size() || snapshot.cursor > snapshot.count
+            || (snapshot.recording && snapshot.playing)
+            || (snapshot.playing && snapshot.count == 0)) {
+            return false;
+        }
+        frames_ = snapshot.frames;
+        count_ = snapshot.count;
+        cursor_ = snapshot.cursor;
+        recording_ = snapshot.recording;
+        playing_ = snapshot.playing;
+        overflowed_ = snapshot.overflowed;
+        return true;
     }
 
 private:

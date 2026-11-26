@@ -122,6 +122,7 @@ InputMap::Sample InputMap::sample(const InputManager& input, int player_index) {
     s.combat.special_pressed = input.pressed(b.special);
     s.combat.smash_held      = input.held(b.smash);
     s.combat.shield_held     = input.held(b.shield);
+    s.combat.shield_pressed  = input.pressed(b.shield);
     s.combat.dodge_pressed   = input.pressed(b.dodge);
     s.combat.surge_pressed   = input.pressed(b.surge);
     return s;

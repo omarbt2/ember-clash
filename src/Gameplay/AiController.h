@@ -41,6 +41,15 @@ public:
         Defend,     // wait through opponent's windup
     };
 
+    struct Snapshot {
+        ai::Difficulty difficulty{};
+        State state{State::Idle};
+        int state_ticks{0};
+        int last_attack_tick{-1};
+        std::uint32_t rng{0};
+        bool force_skip_grace_for_test{false};
+    };
+
     // Build a controller with the given difficulty. The RNG is seeded from
     // difficulty.seed so two matches with the same seed play identically.
     explicit AiController(ai::Difficulty difficulty = ai::kStandard);
@@ -65,6 +74,35 @@ public:
     int              last_attack_tick() const { return last_attack_tick_; }
     bool             skip_grace_for_test() const { return force_skip_grace_for_test_; }
     const ai::Difficulty& difficulty() const { return difficulty_; }
+    Snapshot capture() const {
+        return Snapshot{difficulty_, state_, state_ticks_, last_attack_tick_,
+                        rng_, force_skip_grace_for_test_};
+    }
+    bool restore(const Snapshot& snapshot) {
+        if (static_cast<int>(snapshot.state) < static_cast<int>(State::Idle)
+            || static_cast<int>(snapshot.state) > static_cast<int>(State::Defend)
+            || snapshot.state_ticks < 0 || snapshot.last_attack_tick < -1
+            || snapshot.difficulty.reaction_delay_ticks < 0
+            || snapshot.difficulty.attack_frequency < 0
+            || snapshot.difficulty.attack_frequency > 100
+            || snapshot.difficulty.recovery_priority < 0
+            || snapshot.difficulty.recovery_priority > 100
+            || snapshot.difficulty.defensive_threshold_percent < 0
+            || snapshot.difficulty.defensive_threshold_percent > 100
+            || snapshot.difficulty.jump_aggression < 0
+            || snapshot.difficulty.jump_aggression > 100) {
+            return false;
+        }
+        difficulty_ = snapshot.difficulty;
+        state_ = snapshot.state;
+        state_ticks_ = snapshot.state_ticks;
+        last_attack_tick_ = snapshot.last_attack_tick;
+        // Preserve the exact serialized PRNG state. Zero is a valid captured
+        // state even though xorshift32 will remain absorbing from that point.
+        rng_ = snapshot.rng;
+        force_skip_grace_for_test_ = snapshot.force_skip_grace_for_test;
+        return true;
+    }
 
     // Test-only: reset the controller to its initial state (keeps the
     // difficulty knobs). Used between headless test cases.

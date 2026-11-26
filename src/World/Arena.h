@@ -15,6 +15,7 @@ struct Platform {
     Aabb aabb;
     // One-way platforms can be landed on from above but never block ascent.
     bool one_way{false};
+    bool ledge_grabbable{false};
 };
 
 // Four-sided out-of-bounds limits are arena data, not hard-coded inside the
@@ -25,6 +26,15 @@ struct BlastZone {
     float right{0.0f};
     float top{0.0f};
     float bottom{0.0f};
+};
+
+struct LedgeGrab {
+    bool found{false};
+    float hang_x{0.0f};
+    float hang_y{0.0f};
+    float climb_x{0.0f};
+    float platform_top{0.0f};
+    int facing_inward{1};
 };
 
 // Owns the static arena layout (platforms + blast zone) and is the single
@@ -68,6 +78,12 @@ public:
                           bool drop_through_one_way = false) const;
     // True when the body is standing on a one-way platform (within tolerance).
     bool supported_by_one_way(const Aabb& body) const;
+    // Finds the nearest reachable platform edge while the fighter is falling
+    // and facing inward toward that platform.
+    // Returned coordinates are deterministic and use the fighter's current
+    // body dimensions; a successful grab does not itself mutate the body.
+    LedgeGrab find_ledge_grab(const Aabb& body, const Vec2& velocity,
+                              int facing) const;
     // Four-sided blast-zone test, evaluated by Match before fighter update.
     bool is_out_of_bounds(const Aabb& body) const;
 
