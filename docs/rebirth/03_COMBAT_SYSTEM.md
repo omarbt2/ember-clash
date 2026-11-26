@@ -59,7 +59,7 @@ Sources: respawn (90 ticks VERIFIED as 1.5 s), dodge, specific move frames, ledg
 Combos are not guaranteed: hitstun and DI make true combos rare at higher %. Design rule: no zero-to-death infinite; guard against by hitstun decay (`staleness`: repeated move reduces damage 5%, floor 60%, queue of 8, PROPOSED).
 
 ## 15. Data representation
-Moves stored as JSON (19). Example (Jab, illustrative initial targets):
+Moves are intended to be stored as JSON (design target: 19). The schema-1 loader and starter catalog currently cover the 16 moves present in `AttackId`; reconcile the three-move gap before treating the roster as complete. The loader is not yet connected to runtime combat; `Attack.cpp` remains authoritative. A separate keyframe evaluator now produces mirrored world-space AABB/circle hitboxes for inclusive keyframe windows, but `Match` still needs migration to consume the catalog. Example (Jab, illustrative initial targets):
 ```json
 { "id":"jab","category":"ground","startup":4,"active":3,"recovery":9,
   "cancel":{"to":["jab2"],"from":7,"to_tick":13},

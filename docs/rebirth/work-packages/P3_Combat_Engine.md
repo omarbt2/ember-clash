@@ -3,7 +3,7 @@
 | Field | Value |
 |---|---|
 | Purpose | Implementation plan for P3. No implementation is done by this document. |
-| Status | IN PROGRESS - PARTIALLY VERIFIED (combat resolution and regression coverage started; phase gate not met) |
+| Status | IN PROGRESS - PARTIALLY VERIFIED (combat resolution, regression coverage, and schema-1 move catalog loader started; phase gate not met) |
 | Owner | Project owner (omarbt2); drafted by Claude |
 | Depends on | 24_PRODUCTION_ROADMAP.md, P2 |
 | Related | 24, 26 |
@@ -27,8 +27,8 @@ Data-driven moves (19), hitbox keyframes, hooks, projectiles, traps, grabs/throw
 Anything owned by a later phase; changes to approved shared constants without a Decision Log entry.
 
 ## Ordered task breakdown
-1. JSON loader + validators
-2. Hitbox keyframe engine
+1. JSON loader + validators — PARTIALLY VERIFIED: schema-1 parser/validator and 16-move starter catalog exist; runtime still uses `Attack.cpp` pending keyframe-engine integration. The stated 19-move target does not match the current 16-entry `AttackId` table.
+2. Hitbox keyframe engine — PARTIALLY VERIFIED: standalone evaluator supports inclusive windows, facing-mirrored AABBs, true circle-vs-AABB overlap and frame-exact tests; Match still uses its legacy single-AABB Attack path pending runtime catalog integration.
 3. Grab/throw states
 4. Projectile and trap entities in snapshot
 5. Armor + priority + clank
@@ -45,7 +45,7 @@ Roadmap [24](../24_PRODUCTION_ROADMAP.md), architecture [18](../18_TECHNICAL_ARC
 6-9 FT weeks; see [26](../26_RISK_REGISTER.md).
 
 ## Tests
-Automated: frame-exact scenarios, priority matrix, projectile lifetime. Manual: hitbox overlay review. Build: Release build with 0 warnings, all CTest suites green on Linux (and Windows/WASM from P2).
+Automated: strict schema/parser and hitbox-evaluator tests on GCC and Clang, starter-catalog validation, frame-exact scenarios, priority matrix, projectile lifetime. Manual: hitbox overlay review. Build: Release build with 0 warnings, all CTest suites green on Linux (and Windows/WASM from P2).
 
 ## Acceptance checklist
 - [ ] 03 s16 satisfied

@@ -77,6 +77,10 @@ set(EMBER_SOURCES
     src/Gameplay/InputMap.cpp
     src/Gameplay/Match.cpp
 
+    src/Data/Json.cpp
+    src/Data/MoveContent.cpp
+    src/Data/HitboxEngine.cpp
+
     src/Audio/Audio.cpp
 
     src/Graphics/Renderer.cpp
@@ -228,6 +232,9 @@ if(NOT EMSCRIPTEN)
             get_filename_component(test_name ${test_src} NAME_WE)
             add_executable(${test_name} ${test_src})
             target_link_libraries(${test_name} PRIVATE ember_lib)
+            if(test_name STREQUAL "ember_test_move_content")
+                target_compile_definitions(${test_name} PRIVATE EMBER_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+            endif()
             set_target_properties(${test_name} PROPERTIES RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin)
             add_test(NAME ${test_name} COMMAND ${test_name})
             set_tests_properties(${test_name} PROPERTIES

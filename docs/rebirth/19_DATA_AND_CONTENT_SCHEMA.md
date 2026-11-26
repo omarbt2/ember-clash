@@ -22,7 +22,29 @@ All files carry `"schema":N`. Loader validates and fails fast with file/line mes
  "moves":["jab","ftilt","fsmash","special_n"],"hooks":["forge_heat"],
  "ai_tags":{"ftilt":["poke"],"fsmash":["kill"]},"palette":"palette.json","anim":"anim.json"}
 ```
-## 2. Move: see 03 section 15 (hitbox keyframes). Required: id, category, startup, active, recovery, >=1 hitbox for attacks.
+## 2. Move catalog (P3 task 1 — partially verified)
+The first C++ loader is `data::load_move_catalog` / `data::parse_move_catalog` in
+`src/Data/MoveContent.*`. The version-1 root is `{ "schema": 1, "moves": [...] }`.
+Each move requires a lowercase unique `id`, `category` (`ground`, `air`, `special`,
+`grab`, or `throw`), `startup` (1..60), `active` (1..60), `recovery` (0..120),
+and 1..64 hitbox keyframes. A keyframe requires inclusive `t0`/`t1` within the
+move's active window, shape (`aabb` or `circle`), two-number `off` and positive
+`size` arrays, damage (0..60), angle (0..361), base knockback (0..300), knockback
+scale (0..100), hitstun (0..180), and group (0..255). Optional `fx` is a string
+up to 64 bytes. Optional `cancel` requires an ordered in-duration `from` / `to_tick`
+window and 1..32 unique target IDs that resolve within the same catalog.
+
+The loader rejects unsupported schema versions, duplicate object keys and move
+IDs, malformed JSON, invalid UTF-8, non-finite values, invalid ranges, empty hitbox
+lists, and unresolved cancel references. It parses into a candidate catalog and
+leaves the caller's existing catalog unchanged on any failure. Input is bounded to
+4 MiB and nesting to 64 levels. Unknown fields are tolerated and returned as explicit catalog warnings. The keyframe evaluator in `src/Data/HitboxEngine.*` returns mirrored world-space AABB/circle geometry for a move tick and tests circle-vs-AABB overlap exactly. It is currently standalone: `Attack.cpp` remains the runtime source of truth until Match consumes the loaded catalog.
+
+**Roster reconciliation:** the P3 work-package says 19 data-driven moves, but the
+verified `AttackId` enum/table currently contains 16 executable moves (excluding
+`None`). `assets/data/moves.json` currently mirrors those 16; the remaining three
+moves must be defined from approved fighter/design content rather than invented by
+the loader. D-010 (JSON + C++ hooks) remains PROPOSED pending owner review.
 ## 3. Projectile
 `{"schema":1,"id":"ember_bolt","lifetime":120,"speed":9.0,"shape":{"type":"circle","r":10},"damage":6,"kb":{"base":22,"scale":4},"group":0,"max_live":3,"priority":3}`
 ## 4. Arena
