@@ -31,7 +31,7 @@ A clean configure stopped inside CMake `FetchContent_MakeAvailable(SDL3)` while 
 | `ember_test_p3_move_scenarios` GCC strict build and run | PASS | Same strict flags |
 | Both P3 content tests with Clang strict flags | PASS | Same strict flags |
 | `bash -n tools/build_with_verified_sdl.sh` | PASS | Shell syntax only |
-| `python3 tools/check_rebirth_docs.py` | PASS | 68 Markdown files at the time of the check |
+| `python3 tools/check_rebirth_docs.py` | PASS | 69 Markdown files checked in the final run |
 | `git diff --check` | PASS | Whitespace validation |
 
 ## Remaining build gate
