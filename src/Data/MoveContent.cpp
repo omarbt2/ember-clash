@@ -3,6 +3,7 @@
 #include "Data/Json.h"
 
 #include <cmath>
+#include <filesystem>
 #include <array>
 #include <fstream>
 #include <limits>
@@ -219,6 +220,13 @@ bool parse_move_catalog(std::string_view text, MoveCatalog& output,
     if (root.as_object() == nullptr) return fail(error, source, "$: root must be an object");
 
     MoveCatalog candidate;
+    // Fingerprint exact source bytes so replay/snapshot diagnostics can detect
+    // content revisions even when the schema number remains unchanged.
+    candidate.content_hash = 14695981039346656037ULL;
+    for (const unsigned char byte : text) {
+        candidate.content_hash ^= static_cast<std::uint64_t>(byte);
+        candidate.content_hash *= 1099511628211ULL;
+    }
     collect_unknown_fields(root, {"schema", "moves"}, "$", candidate.warnings);
     if (!read_integer(root, "schema", 1, 1, candidate.schema, error, source, "$")) return false;
     const Value* moves_value = nullptr;
@@ -249,6 +257,36 @@ bool parse_move_catalog(std::string_view text, MoveCatalog& output,
     output = std::move(candidate);
     error = {};
     return true;
+}
+
+std::string resolve_move_catalog_path(std::string_view working_directory,
+                                      std::string_view executable_directory,
+                                      std::string_view source_directory) {
+    namespace fs = std::filesystem;
+    fs::path working_root;
+    if (working_directory.empty()) {
+        std::error_code current_path_error;
+        working_root = fs::current_path(current_path_error);
+        if (current_path_error) working_root = fs::path{};
+    } else {
+        working_root = fs::path(working_directory);
+    }
+
+    const fs::path relative_catalog = fs::path("assets") / "data" / "moves.json";
+    const fs::path working_candidate = working_root / relative_catalog;
+    const fs::path executable_candidate = fs::path(executable_directory) / relative_catalog;
+    const fs::path source_candidate = fs::path(source_directory) / relative_catalog;
+    const auto is_file = [](const fs::path& path) {
+        std::error_code error;
+        return fs::is_regular_file(path, error) && !error;
+    };
+
+    if (is_file(working_candidate)) return working_candidate.string();
+    if (!executable_directory.empty() && is_file(executable_candidate))
+        return executable_candidate.string();
+    if (!source_directory.empty() && is_file(source_candidate))
+        return source_candidate.string();
+    return working_candidate.string();
 }
 
 bool load_move_catalog(const std::string& path, MoveCatalog& output,

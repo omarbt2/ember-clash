@@ -113,6 +113,7 @@ else()
 endif()
 
 add_executable(EmberClash ${EMBER_SOURCES})
+target_compile_definitions(EmberClash PRIVATE EMBER_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 # -----------------------------------------------------------------------------
 # Platform-specific source and build configuration.
@@ -164,6 +165,7 @@ if(EMSCRIPTEN)
         "-sUSE_SDL=3"
         "-sALLOW_MEMORY_GROWTH=1"
         "-sEXIT_RUNTIME=1"
+        "--embed-file=${CMAKE_SOURCE_DIR}/assets/data/moves.json@/assets/data/moves.json"
     )
     # The deploy bundle is the source-tree web/ directory: hand-maintained
     # web/index.html (the player-facing page) plus the emcc-built
@@ -184,6 +186,14 @@ if(EMSCRIPTEN)
             -P ${CMAKE_SOURCE_DIR}/cmake/CopyWebArtifacts.cmake
         COMMENT "Copying EmberClash.js + EmberClash.wasm to web/"
     )
+    add_custom_command(
+        TARGET EmberClash POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DMOVE_CATALOG=${CMAKE_SOURCE_DIR}/assets/data/moves.json
+            -DDESTINATION_ROOT=${CMAKE_SOURCE_DIR}/web
+            -P ${CMAKE_SOURCE_DIR}/cmake/CopyMoveCatalog.cmake
+        COMMENT "Copying move content to web/assets/data/"
+    )
     # Note: nothing in src/Core/Time.cpp needs an Emscripten-specific clock.
     # SDL_GetPerformanceCounter maps to emscripten_get_now() under the hood.
 else()
@@ -197,6 +207,15 @@ else()
     # alongside the executable.
     set_target_properties(EmberClash PROPERTIES
         RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}/bin
+    )
+
+    add_custom_command(
+        TARGET EmberClash POST_BUILD
+        COMMAND ${CMAKE_COMMAND}
+            -DMOVE_CATALOG=${CMAKE_SOURCE_DIR}/assets/data/moves.json
+            -DDESTINATION_ROOT=$<TARGET_FILE_DIR:EmberClash>
+            -P ${CMAKE_SOURCE_DIR}/cmake/CopyMoveCatalog.cmake
+        COMMENT "Copying move content beside EmberClash executable"
     )
 
     # On Windows, copy SDL3.dll next to the executable after every successful
@@ -226,6 +245,7 @@ if(NOT EMSCRIPTEN)
         list(REMOVE_ITEM EMBER_LIB_SOURCES ${EMBER_DESKTOP_ENTRY})
         add_library(ember_lib STATIC ${EMBER_LIB_SOURCES})
         target_include_directories(ember_lib PUBLIC ${CMAKE_SOURCE_DIR}/src)
+        target_compile_definitions(ember_lib PRIVATE EMBER_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
         target_link_libraries(ember_lib PUBLIC SDL3::SDL3)
         file(GLOB EMBER_TEST_SOURCES CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/tests/ember_test_*.cpp)
         foreach(test_src ${EMBER_TEST_SOURCES})
@@ -249,4 +269,7 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS EmberClash
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+)
+install(FILES assets/data/moves.json
+    DESTINATION ${CMAKE_INSTALL_BINDIR}/assets/data
 )

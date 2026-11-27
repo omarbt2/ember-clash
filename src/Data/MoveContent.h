@@ -2,6 +2,7 @@
 
 #include <string>
 #include <string_view>
+#include <cstdint>
 #include <vector>
 
 namespace ember::data {
@@ -44,6 +45,7 @@ struct MoveDefinition {
 
 struct MoveCatalog {
     int schema = 0;
+    std::uint64_t content_hash = 0;
     std::vector<MoveDefinition> moves;
     std::vector<std::string> warnings;
 };
@@ -60,6 +62,13 @@ struct ContentError {
 bool parse_move_catalog(std::string_view text, MoveCatalog& output,
                         ContentError& error,
                         std::string source = "<memory>");
+// Finds the catalog in launch working-directory, executable-directory, then
+// source-tree order. If no candidate exists, returns the working-directory
+// candidate so load_move_catalog reports the expected path in its error.
+std::string resolve_move_catalog_path(std::string_view working_directory,
+                                      std::string_view executable_directory,
+                                      std::string_view source_directory);
+
 bool load_move_catalog(const std::string& path, MoveCatalog& output,
                        ContentError& error);
 

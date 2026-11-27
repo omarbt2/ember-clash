@@ -27,13 +27,17 @@ Data-driven moves (19), hitbox keyframes, hooks, projectiles, traps, grabs/throw
 Anything owned by a later phase; changes to approved shared constants without a Decision Log entry.
 
 ## Ordered task breakdown
-1. JSON loader + validators — PARTIALLY VERIFIED: schema-1 parser/validator and 16-move starter catalog exist; runtime still uses `Attack.cpp` pending keyframe-engine integration. The stated 19-move target does not match the current 16-entry `AttackId` table.
-2. Hitbox keyframe engine — PARTIALLY VERIFIED: standalone evaluator supports inclusive windows, facing-mirrored AABBs, true circle-vs-AABB overlap and frame-exact tests; Match still uses its legacy single-AABB Attack path pending runtime catalog integration.
+1. JSON loader + validators — PARTIALLY VERIFIED: schema-1 parser/validator and 16-move starter catalog exist; Match now loads the catalog and maps the currently implemented `AttackId` roster. The stated 19-move target does not match the current 16-entry `AttackId` table.
+2. Hitbox keyframe engine — PARTIALLY VERIFIED: inclusive windows, facing-mirrored geometry, AABB and true circle-vs-AABB are wired into Match fixed-tick hit resolution. Starter-move frame scenarios and content payload/geometry tests pass on GCC and Clang; full SDL-linked combat integration CTest remains unverified due to incomplete runner SDL headers.
 3. Grab/throw states
 4. Projectile and trap entities in snapshot
 5. Armor + priority + clank
 6. Scenario DSL and per-move tests
 (each task is split into subtasks in the implementing session; list them in the PR description.)
+
+## Latest implementation evidence
+
+Runtime loader-to-Match integration and content fingerprint/snapshot compatibility: [P3 runtime integration evidence](../evidence/p3-runtime-hitbox-integration-2026-11-26.md).
 
 ## Expected changed areas / new files
 src/Gameplay, src/Data (new), tests/, assets/data/

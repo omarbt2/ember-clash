@@ -30,7 +30,8 @@ int main() {
 
     const Match::Snapshot snapshot = match.capture_state();
     const std::uint64_t checkpoint_hash = match.state_hash();
-    assert(snapshot.version == 1);
+    assert(snapshot.version == 2);
+    assert(snapshot.move_content_hash != 0);
     assert(snapshot.has_ai[1]);
     assert(snapshot.training.count == 1);
     assert(snapshot.fighters[0].state == Fighter::State::LedgeHang);
@@ -61,6 +62,13 @@ int main() {
     assert(match.restore_state(snapshot));
     match.update(input);
     assert(match.state_hash() == first_branch_hash);
+
+    // Snapshots are tied to the exact validated move-content revision.
+    Match::Snapshot content_mismatch = snapshot;
+    content_mismatch.move_content_hash ^= 0x1ULL;
+    const std::uint64_t before_content_rejection = match.state_hash();
+    assert(!match.restore_state(content_mismatch));
+    assert(match.state_hash() == before_content_rejection);
 
     // Reject unsupported versions atomically.
     Match::Snapshot invalid = snapshot;

@@ -73,17 +73,56 @@ int main() {
     assert(label != nullptr && label->as_string() != nullptr);
     assert(label->as_string()->find("Kaelen ") == 0U);
 
+    // Runtime path resolution prefers the launch working directory, then the
+    // executable directory (packaged desktop/web assets), then the developer
+    // source tree. Each branch is exercised against real temporary files.
+    const std::filesystem::path path_root =
+        std::filesystem::temp_directory_path() / "ember_move_catalog_path_test";
+    std::filesystem::remove_all(path_root);
+    const auto working = path_root / "working";
+    const auto executable = path_root / "executable";
+    const auto source = path_root / "source";
+    const auto write_catalog_marker = [](const std::filesystem::path& root) {
+        const auto file = root / "assets" / "data" / "moves.json";
+        std::filesystem::create_directories(file.parent_path());
+        std::ofstream output(file);
+        output << "{}";
+        assert(output.good());
+    };
+    write_catalog_marker(executable);
+    write_catalog_marker(source);
+    assert(data::resolve_move_catalog_path(working.string(), executable.string(),
+                                          source.string()) ==
+           (executable / "assets" / "data" / "moves.json").string());
+    write_catalog_marker(working);
+    assert(data::resolve_move_catalog_path(working.string(), executable.string(),
+                                          source.string()) ==
+           (working / "assets" / "data" / "moves.json").string());
+    std::filesystem::remove(working / "assets" / "data" / "moves.json");
+    std::filesystem::remove(executable / "assets" / "data" / "moves.json");
+    assert(data::resolve_move_catalog_path(working.string(), executable.string(),
+                                          source.string()) ==
+           (source / "assets" / "data" / "moves.json").string());
+    std::filesystem::remove(source / "assets" / "data" / "moves.json");
+    assert(data::resolve_move_catalog_path(working.string(), executable.string(),
+                                          source.string()) ==
+           (working / "assets" / "data" / "moves.json").string());
+    std::filesystem::remove_all(path_root);
+
     // The real starter catalog is validated against the exact current code roster.
     const std::string source_path = std::string(EMBER_SOURCE_DIR) + "/assets/data/moves.json";
     data::MoveCatalog starter;
     assert(data::load_move_catalog(source_path, starter, error));
+    assert(starter.content_hash != 0);
     assert(starter.moves.size() == static_cast<std::size_t>(AttackId::Count) - 1U);
     assert(starter.moves.front().id == "jab");
+    assert(starter.moves.front().hitboxes.front().knockback_scale == 4);
     assert(starter.moves.back().id == "special_d");
 
     // A failed operation never partially overwrites an existing catalog.
     const std::string preserved_id = starter.moves.front().id;
     assert(!data::parse_move_catalog("{", starter, error, "broken.json"));
+    assert(starter.content_hash != 0);
     assert(starter.moves.size() == static_cast<std::size_t>(AttackId::Count) - 1U);
     assert(starter.moves.front().id == preserved_id);
 

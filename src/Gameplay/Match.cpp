@@ -4,6 +4,8 @@
 #include "Core/Logger.h"
 #include "Gameplay/AiController.h"
 #include "Gameplay/Attack.h"
+#include "Data/HitboxEngine.h"
+#include "Data/MoveContent.h"
 #include "Gameplay/CombatConfig.h"
 #include "Gameplay/Fighter.h"
 #include "Gameplay/InputMap.h"
@@ -11,53 +13,56 @@
 #include "Input/InputManager.h"
 #include "UI/Hud.h"
 
+#include <SDL3/SDL_filesystem.h>
+#include <SDL3/SDL_stdinc.h>
+
 #include <bit>
 #include <cmath>
 #include <limits>
+#include <string>
 
 namespace ember {
 
 namespace {
 
-// True iff two AABBs overlap (touching counts). Half-open in the inclusive
-// direction; the smash-style "edge-tap" feel of touching = hit is desired
-// here. The existing arena collision uses the same convention.
-bool aabb_overlap(const Aabb& a, const Aabb& b) {
-    return a.x < b.x + b.w
-        && a.x + a.w > b.x
-        && a.y < b.y + b.h
-        && a.y + a.h > b.y;
-}
-
-// Resolve one active swing against one hurtbox. Defence is resolved by the
-// defender (guard/parry/dodge/invulnerability), not bypassed by the match
-// loop. Any non-ignored contact consumes the attack's one-hit budget.
-Fighter::HitOutcome apply_attack(Fighter& attacker, Fighter& target) {
+// Resolve one active content hitbox against one hurtbox. Defence is resolved
+// by the defender (guard/parry/dodge/invulnerability), not bypassed by Match.
+// Any non-ignored contact consumes the current attack's one-hit budget.
+Fighter::HitOutcome apply_attack(Fighter& attacker, Fighter& target,
+                                 const data::ActiveHitbox& hitbox) {
     if (attacker.attack_has_hit()) return Fighter::HitOutcome::Ignored;
 
-    const Attack& atk = get_attack(attacker.current_attack_id());
     const double damage_scale = attacker.surge_active()
         ? combat::kSurgeDamageMul : 1.0;
     const double knockback_scale = attacker.surge_active()
         ? combat::kSurgeKnockbackMul : 1.0;
-    const int scaled_damage = static_cast<int>(std::lround(atk.damage * damage_scale));
+    const int scaled_damage = static_cast<int>(std::lround(hitbox.damage * damage_scale));
 
     // knockback = base * (1 + target_damage / divisor), then Surge scaling.
-    const double kb = static_cast<double>(atk.base_knockback)
-                    * (1.0 + static_cast<double>(target.damage_percent())
-                         / static_cast<double>(combat::kKnockbackDamageDivisor))
+    // P3 content formula: base + scaled damage growth. The roster's per-fighter
+    // weight table is not implemented yet, so runtime currently uses the neutral
+    // reference weight (100); the formula remains explicit for later data hookup.
+    constexpr double kReferenceWeight = 100.0;
+    const double damage_after_hit = static_cast<double>(target.damage_percent()
+                                                        + scaled_damage);
+    const double damage_growth = static_cast<double>(hitbox.knockback_scale)
+        * damage_after_hit / static_cast<double>(combat::kKnockbackDamageDivisor)
+        * (100.0 / kReferenceWeight);
+    const double kb = (static_cast<double>(hitbox.base_knockback) + damage_growth)
                     * knockback_scale;
 
-    const double sx = static_cast<double>(atk.knockback_angle_x)
-                    * static_cast<double>(attacker.facing());
-    const double sy = static_cast<double>(atk.knockback_angle_y);
+    // Content angle convention: degrees, 0 = forward, 90 = upward, 270 = downward.
+    const double radians = static_cast<double>(hitbox.angle % 360)
+                        * 3.14159265358979323846 / 180.0;
+    const double sx = std::cos(radians) * static_cast<double>(attacker.facing());
+    const double sy = -std::sin(radians);
     const double mag = std::sqrt(sx * sx + sy * sy);
     const double nx  = (mag > 1e-6) ? sx / mag : sx;
     const double ny  = (mag > 1e-6) ? sy / mag : sy;
     const Vec2 knockback_velocity{nx * kb, ny * kb};
 
     const Fighter::HitOutcome outcome = target.receive_hit(
-        scaled_damage, knockback_velocity, atk.hitstun_frames, attacker.facing());
+        scaled_damage, knockback_velocity, hitbox.hitstun, attacker.facing());
     if (outcome == Fighter::HitOutcome::Ignored) return outcome;
 
     // One contact per swing, including a blocked, parried, or dodged swing.
@@ -74,6 +79,38 @@ Fighter::HitOutcome apply_attack(Fighter& attacker, Fighter& target) {
         attacker.add_surge(scaled_damage * combat::kSurgeGainPerDamageDealt);
     }
     return outcome;
+}
+
+const char* move_id_for_attack(AttackId id) {
+    switch (id) {
+    case AttackId::Jab: return "jab";
+    case AttackId::ForwardTilt: return "ftilt";
+    case AttackId::NeutralAir: return "nair";
+    case AttackId::UpTilt: return "utilt";
+    case AttackId::DownTilt: return "dtilt";
+    case AttackId::ForwardSmash: return "fsmash";
+    case AttackId::UpSmash: return "usmash";
+    case AttackId::DownSmash: return "dsmash";
+    case AttackId::ForwardAir: return "fair";
+    case AttackId::BackAir: return "bair";
+    case AttackId::UpAir: return "uair";
+    case AttackId::DownAir: return "dair";
+    case AttackId::NeutralSpecial: return "special_n";
+    case AttackId::SideSpecial: return "special_s";
+    case AttackId::UpSpecial: return "special_u";
+    case AttackId::DownSpecial: return "special_d";
+    case AttackId::None: case AttackId::Count: break;
+    }
+    return nullptr;
+}
+
+const data::MoveDefinition* find_move(const data::MoveCatalog& catalog, AttackId id) {
+    const char* key = move_id_for_attack(id);
+    if (key == nullptr) return nullptr;
+    for (const data::MoveDefinition& move : catalog.moves) {
+        if (move.id == key) return &move;
+    }
+    return nullptr;
 }
 
 // Midpoint of the AABB. Used for hit-spark placement.
@@ -104,6 +141,23 @@ float shake_offset_1d(float magnitude, std::uint32_t& state) {
 
 Match::Match()
     : respawn_timer_{ -1, -1 } {
+    data::ContentError content_error;
+    std::string executable_directory;
+    if (char* executable_base = SDL_GetBasePath()) {
+        executable_directory = executable_base;
+        SDL_free(executable_base);
+    }
+#ifdef EMBER_SOURCE_DIR
+    const std::string source_directory = EMBER_SOURCE_DIR;
+#else
+    const std::string source_directory;
+#endif
+    const std::string catalog_path = data::resolve_move_catalog_path(
+        {}, executable_directory, source_directory);
+    move_catalog_loaded_ = data::load_move_catalog(catalog_path, move_catalog_, content_error);
+    if (!move_catalog_loaded_) {
+        Logger::warn("Move content unavailable; using legacy attack hitboxes: " + content_error.message);
+    }
     reset();
     // M4 default: P1 is human-controlled, P2 is the bot. The future
     // difficulty-select screen will swap this; the harness can override it
@@ -304,31 +358,57 @@ void Match::update(const InputManager& input) {
         self.update(motion, combat, arena_);
     }
 
-    // 3) Resolve hits: for each ordered pair (attacker, defender) where the
-    //    attacker's current attack is in its active window and the hitbox
-    //    overlaps the defender's hurtbox, apply the hit.
+    // 3) Resolve data-authored active hitboxes. The immutable catalog is loaded
+    // once at match construction; frame-local active shapes are derived from the
+    // current fighter pose and tick, so rollback/replay needs no cached geometry.
     for (int a = 0; a < kFighterCount; ++a) {
         Fighter& attacker = *fighters_[a];
-        const Aabb hb = attacker.active_hitbox();
-        if (hb.w <= 0.0f || hb.h <= 0.0f) continue;
+        if (attacker.state() != Fighter::State::Attacking || attacker.attack_has_hit()) continue;
+        const data::MoveDefinition* move = move_catalog_loaded_
+            ? find_move(move_catalog_, attacker.current_attack_id()) : nullptr;
+        std::vector<data::ActiveHitbox> content_hitboxes;
+        if (move != nullptr) {
+            content_hitboxes = data::hitboxes_at_tick(
+                *move, attacker.attack_frame(), attacker.body(), attacker.facing());
+        } else {
+            const Aabb legacy = attacker.active_hitbox();
+            if (legacy.w > 0.0f && legacy.h > 0.0f) {
+                data::ActiveHitbox fallback{};
+                fallback.shape = data::HitboxShape::Aabb;
+                fallback.bounds = legacy;
+                const Attack& attack = get_attack(attacker.current_attack_id());
+                fallback.damage = attack.damage;
+                fallback.angle = static_cast<int>(std::lround(
+                    std::atan2(-attack.knockback_angle_y, attack.knockback_angle_x)
+                    * 180.0 / 3.14159265358979323846));
+                fallback.base_knockback = attack.base_knockback;
+                fallback.hitstun = attack.hitstun_frames;
+                content_hitboxes.push_back(fallback);
+            }
+        }
+        if (content_hitboxes.empty()) continue;
 
         for (int d = 0; d < kFighterCount; ++d) {
             if (d == a) continue;
             Fighter& target = *fighters_[d];
             if (target.is_dead()) continue;
-            if (aabb_overlap(hb, target.body())) {
-                const Fighter::HitOutcome outcome = apply_attack(attacker, target);
-                if (outcome != Fighter::HitOutcome::Ignored) {
-                    const Vec2 c = aabb_center(hb);
-                    last_hit_ = HitEvent{static_cast<float>(c.x),
-                                         static_cast<float>(c.y), true};
-                    hit_spark_age_ = combat::kHitSparkFrames;
-                    // A clean hit gets full hit-stop. Defensive contact still
-                    // gets a spark without freezing the simulation.
-                    if (outcome == Fighter::HitOutcome::Hit) {
-                        hit_stop_frames_ = combat::kHitStopFrames;
-                    }
+            bool contact = false;
+            data::ActiveHitbox contacted{};
+            for (const data::ActiveHitbox& active : content_hitboxes) {
+                if (data::hitbox_overlaps(active, target.body())) {
+                    contact = true;
+                    contacted = active;
+                    break;
                 }
+            }
+            if (!contact) continue;
+            const Fighter::HitOutcome outcome = apply_attack(attacker, target, contacted);
+            if (outcome != Fighter::HitOutcome::Ignored) {
+                const Vec2 c = aabb_center(contacted.bounds);
+                last_hit_ = HitEvent{static_cast<float>(c.x), static_cast<float>(c.y), true};
+                hit_spark_age_ = combat::kHitSparkFrames;
+                if (outcome == Fighter::HitOutcome::Hit)
+                    hit_stop_frames_ = combat::kHitStopFrames;
             }
         }
     }
@@ -425,7 +505,8 @@ const Fighter& Match::fighter(int index) const {
 // --------------------------------------------------------------------
 Match::Snapshot Match::capture_state() const {
     Snapshot snapshot{};
-    snapshot.version = 1;
+    snapshot.version = 2;
+    snapshot.move_content_hash = move_catalog_loaded_ ? move_catalog_.content_hash : 0;
     snapshot.arena_id = arena_id_;
     for (int i = 0; i < kFighterCount; ++i) {
         snapshot.fighters[static_cast<std::size_t>(i)] = fighters_[i]->capture_state();
@@ -454,7 +535,8 @@ Match::Snapshot Match::capture_state() const {
 }
 
 bool Match::restore_state(const Snapshot& snapshot) {
-    if (snapshot.version != 1
+    if (snapshot.version != 2
+        || snapshot.move_content_hash != (move_catalog_loaded_ ? move_catalog_.content_hash : 0)
         || static_cast<int>(snapshot.arena_id) < static_cast<int>(Arena::Id::TrainingRing)
         || static_cast<int>(snapshot.arena_id) > static_cast<int>(Arena::Id::SkyTemple)
         || static_cast<int>(snapshot.phase) < static_cast<int>(Phase::Fighting)
@@ -549,6 +631,10 @@ std::uint64_t Match::state_hash() const {
         mix64(std::bit_cast<std::uint64_t>(value));
     };
     auto mix_bool = [&](bool value) { mix32(value ? 1u : 0u); };
+
+    // Content identity is simulation-relevant: matching frame state with a
+    // different move catalog must not be treated as a replay-equivalent state.
+    mix64(move_catalog_loaded_ ? move_catalog_.content_hash : 0);
 
     // --- Arena data ---
     mix32(static_cast<std::uint32_t>(arena_.id()));

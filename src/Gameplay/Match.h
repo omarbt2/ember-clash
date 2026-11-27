@@ -5,6 +5,7 @@
 #include "Gameplay/AiController.h"
 #include "Gameplay/Fighter.h"
 #include "Gameplay/TrainingRecorder.h"
+#include "Data/MoveContent.h"
 #include "World/Arena.h"
 
 #include <array>
@@ -35,7 +36,8 @@ public:
     // Complete, fixed-layout match state for deterministic rollback/replay.
     // Runtime ownership (textures/controllers) is recreated from these values.
     struct Snapshot {
-        std::uint32_t version{1};
+        std::uint32_t version{2};
+        std::uint64_t move_content_hash{0};
         Arena::Id arena_id{Arena::Id::TrainingRing};
         std::array<Fighter::Snapshot, kFighterCount> fighters{};
         std::array<bool, kFighterCount> has_ai{};
@@ -224,6 +226,8 @@ private:
     std::array<std::unique_ptr<Fighter>, kFighterCount> fighters_;
     std::array<std::unique_ptr<AiController>, kFighterCount> ai_;
     training::Recorder training_recorder_{};
+    data::MoveCatalog move_catalog_{};
+    bool move_catalog_loaded_{false};
 
     // M5 match-flow timers are integer ticks. A negative respawn value means
     // the fighter is alive and no respawn is pending.
