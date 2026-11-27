@@ -34,27 +34,85 @@ if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
 endif()
 
 # -----------------------------------------------------------------------------
-# Dependencies (SDL3 fetched at configure time)
+# Dependencies (prefer the exact system package; otherwise use pinned source)
 # -----------------------------------------------------------------------------
-include(FetchContent)
+set(EMBER_SDL3_SOURCE_DIR "" CACHE PATH
+    "Path to an existing SDL3 3.2.10 source tree (for offline builds)")
+option(EMBER_USE_SYSTEM_SDL3
+    "Use an installed SDL3 3.2.10 CMake package before fetching source" ON)
 
 set(SDL3_TAG "release-3.2.10" CACHE STRING "SDL3 tag/branch to fetch")
 set(SDL3_REPO "https://github.com/libsdl-org/SDL.git")
 
-FetchContent_Declare(
-    SDL3
-    GIT_REPOSITORY ${SDL3_REPO}
-    GIT_TAG        ${SDL3_TAG}
-    GIT_SHALLOW    TRUE
-    GIT_SUBMODULES_RECURSE TRUE
-)
+# An explicit source tree always wins over an installed package. This is the
+# reproducible offline path used by tools/build_with_verified_sdl.sh.
+if(EMBER_SDL3_SOURCE_DIR)
+    get_filename_component(_ember_sdl3_source_dir
+        "${EMBER_SDL3_SOURCE_DIR}" REALPATH BASE_DIR "${CMAKE_SOURCE_DIR}")
+    if(NOT EXISTS "${_ember_sdl3_source_dir}/CMakeLists.txt" OR
+       NOT EXISTS "${_ember_sdl3_source_dir}/include/SDL3/SDL_version.h")
+        message(FATAL_ERROR
+            "EMBER_SDL3_SOURCE_DIR must point to an SDL3 source tree containing "
+            "CMakeLists.txt and include/SDL3/SDL_version.h: "
+            "${EMBER_SDL3_SOURCE_DIR}")
+    endif()
+    file(STRINGS "${_ember_sdl3_source_dir}/include/SDL3/SDL_version.h"
+        _ember_sdl3_version_lines
+        REGEX "^#define SDL_(MAJOR|MINOR|MICRO)_VERSION[ \t]+[0-9]+")
+    set(_ember_sdl3_major "")
+    set(_ember_sdl3_minor "")
+    set(_ember_sdl3_micro "")
+    foreach(_line IN LISTS _ember_sdl3_version_lines)
+        if(_line MATCHES "SDL_MAJOR_VERSION[ \t]+([0-9]+)")
+            set(_ember_sdl3_major "${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "SDL_MINOR_VERSION[ \t]+([0-9]+)")
+            set(_ember_sdl3_minor "${CMAKE_MATCH_1}")
+        elseif(_line MATCHES "SDL_MICRO_VERSION[ \t]+([0-9]+)")
+            set(_ember_sdl3_micro "${CMAKE_MATCH_1}")
+        endif()
+    endforeach()
+    if(NOT "${_ember_sdl3_major}.${_ember_sdl3_minor}.${_ember_sdl3_micro}" STREQUAL "3.2.10")
+        message(FATAL_ERROR
+            "Ember Clash requires SDL3 3.2.10; EMBER_SDL3_SOURCE_DIR reports "
+            "${_ember_sdl3_major}.${_ember_sdl3_minor}.${_ember_sdl3_micro} "
+            "(${_ember_sdl3_source_dir})")
+    endif()
+    set(FETCHCONTENT_SOURCE_DIR_SDL3 "${_ember_sdl3_source_dir}" CACHE PATH
+        "SDL3 source tree used by FetchContent" FORCE)
+endif()
 
-# Disable SDL3 examples/tests/static analysis; we only need the runtime lib.
-set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
-set(SDL_TESTS    OFF CACHE BOOL "" FORCE)
-set(SDL_STATIC_PIC OFF CACHE BOOL "" FORCE)
+# Native package installs are useful on developer machines and CI caches. Keep
+# the version exact: accepting another SDL3 release would silently change the
+# tested dependency surface. Web builds continue to compile the pinned source
+# with the Emscripten toolchain below.
+if(EMBER_USE_SYSTEM_SDL3 AND NOT EMSCRIPTEN AND NOT EMBER_SDL3_SOURCE_DIR)
+    find_package(SDL3 3.2.10 EXACT CONFIG QUIET)
+endif()
 
-FetchContent_MakeAvailable(SDL3)
+if(NOT TARGET SDL3::SDL3)
+    include(FetchContent)
+
+    # Disable SDL3 examples/tests/static analysis; we only need the runtime lib.
+    set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    set(SDL_TESTS    OFF CACHE BOOL "" FORCE)
+    set(SDL_STATIC_PIC OFF CACHE BOOL "" FORCE)
+
+    FetchContent_Declare(
+        SDL3
+        GIT_REPOSITORY ${SDL3_REPO}
+        GIT_TAG        ${SDL3_TAG}
+        GIT_SHALLOW    TRUE
+        GIT_SUBMODULES_RECURSE TRUE
+    )
+
+    FetchContent_MakeAvailable(SDL3)
+endif()
+
+if(NOT TARGET SDL3::SDL3)
+    message(FATAL_ERROR
+        "SDL3::SDL3 was not defined. Install SDL3 3.2.10, set SDL3_DIR to its "
+        "CMake package, or set EMBER_SDL3_SOURCE_DIR to the SDL 3.2.10 source tree.")
+endif()
 
 # -----------------------------------------------------------------------------
 # Sources

@@ -19,7 +19,9 @@ The project focuses on responsive movement, readable combat, damage-based knockb
 - Windows 10+, Linux, or macOS
 - On Windows, the Windows SDK and a supported MSVC toolchain
 
-SDL3 is fetched by CMake during configuration.
+CMake looks for an installed **SDL3 3.2.10** package first on native builds. If it is not available, CMake fetches the pinned `release-3.2.10` source. The exact source version is intentionally kept fixed.
+
+For an offline build, place the verified SDL 3.2.10 source tree on disk and pass its directory with `-DEMBER_SDL3_SOURCE_DIR=/path/to/SDL`. The directory must contain `CMakeLists.txt` and `include/SDL3/SDL_version.h`; CMake checks that the headers report version 3.2.10 before configuring. A system package can also be selected explicitly with `-DSDL3_DIR=/path/to/lib/cmake/SDL3`.
 
 ## Build on Windows
 
@@ -42,8 +44,8 @@ cmake --build build --config Release
 ## Build on Linux or macOS
 
 ```bash
-cmake -S . -B build -G Ninja
-cmake --build build
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
 ./build/bin/EmberClash
 ```
 

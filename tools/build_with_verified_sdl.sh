@@ -34,6 +34,6 @@ test -f "$SDL_SOURCE/CMakeLists.txt"
 
 cmake -S "$REPO_ROOT" -B "$BUILD_DIR" -G Ninja \
   -DCMAKE_BUILD_TYPE=Release \
-  -DFETCHCONTENT_SOURCE_DIR_SDL3="$SDL_SOURCE"
+  -DEMBER_SDL3_SOURCE_DIR="$SDL_SOURCE"
 cmake --build "$BUILD_DIR" --parallel
 ctest --test-dir "$BUILD_DIR" --output-on-failure
