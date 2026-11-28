@@ -70,6 +70,8 @@ int main() {
         check(roundtrip, "key_from_index(key_index(k)) == k (remap capture returns the real key)");
         check(InputManager::is_valid_keycode(SDLK_LEFT) &&
               InputManager::is_valid_keycode(SDLK_LSHIFT) &&
+              InputManager::is_valid_keycode(SDLK_RETURN) &&
+              InputManager::is_valid_keycode(SDLK_ESCAPE) &&
               !InputManager::is_valid_keycode(SDLK_UNKNOWN) &&
               !InputManager::is_valid_keycode(static_cast<SDL_Keycode>(5)) &&
               !InputManager::is_valid_keycode(static_cast<SDL_Keycode>(127)) &&

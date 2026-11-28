@@ -10,7 +10,17 @@ namespace ember {
 
 int InputManager::key_index(SDL_Keycode key) {
     const long long k = static_cast<long long>(key);
-    if (k < kPlainKeyFloor) return kInvalidKeyIndex; // Unknown/control codes are not bindable.
+
+    // SDL3 represents these two menu controls as their ASCII control-code
+    // values, not as scancode-masked keycodes. They still need dedicated
+    // slots: rejecting every value below kPlainKeyFloor makes RETURN and
+    // ESCAPE collapse to the invalid sentinel, breaking menu confirmation,
+    // pause/resume, key round-tripping, and the PLAY -> mode -> arena flow.
+    if (key == SDLK_RETURN || key == SDLK_ESCAPE) {
+        return static_cast<int>(k);
+    }
+
+    if (k < kPlainKeyFloor) return kInvalidKeyIndex; // Unknown/unbound control codes.
     if (k < kPlainKeyLimit) {
         // ASCII DEL and the C1 control block are not printable keys.
         if (k >= 127 && k < 160) return kInvalidKeyIndex;

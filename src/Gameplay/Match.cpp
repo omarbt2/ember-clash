@@ -1,3 +1,4 @@
+
 #include "Gameplay/Match.h"
 
 #include "Core/Config.h"
@@ -143,10 +144,10 @@ Match::Match()
     : respawn_timer_{ -1, -1 } {
     data::ContentError content_error;
     std::string executable_directory;
-    if (char* executable_base = SDL_GetBasePath()) {
-        executable_directory = executable_base;
-        SDL_free(executable_base);
-    }
+if (const char* executable_base = SDL_GetBasePath()) {
+    executable_directory = executable_base;
+}
+
 #ifdef EMBER_SOURCE_DIR
     const std::string source_directory = EMBER_SOURCE_DIR;
 #else
@@ -258,8 +259,8 @@ void Match::update(const InputManager& input) {
     // we still tick match_startup_ticks_ and recompute
     // intro_banner_state_ so the Hud can render the right banner,
     // and we still age any active hit-spark so a hit that landed
-    // the previous frame does not freeze on screen. We also let
-    // the KO shake tick down (a held shake from a prior match's
+    // the previous frame does not freeze on screen. We also let the
+    // KO shake tick down (a held shake from a prior match's
     // last hit would otherwise linger into the next match, but
     // reset() clears ko_shake_frames_ to 0 so this is a no-op in
     // practice).
